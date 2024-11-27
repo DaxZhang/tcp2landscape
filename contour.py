@@ -46,6 +46,7 @@ cv2.destroyAllWindows()
 if len(contours) > 0:
     epsilon = 1 * cv2.arcLength(contours[0], True)
     approx = cv2.approxPolyDP(contours[0], epsilon, True)
+    print(len(approx))
     # 创建一个空白图像用于绘制多边形
     poly_image = np.zeros_like(img_rgb)
     cv2.drawContours(poly_image, [approx], 0, (0, 255, 0), 2)

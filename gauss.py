@@ -1,7 +1,7 @@
 from PIL import Image, ImageDraw
 import numpy as np
 import math
-import tqdm
+
 
 def calculate_linear_function(point1, point2):
     """
@@ -23,6 +23,10 @@ def calculate_linear_function(point1, point2):
     # 计算截距b，将其中一个点坐标代入y = kx + b 求解b
     b = y1 - k * x1
     return k, b
+
+
+
+
 
 
 

@@ -44,7 +44,7 @@ cv2.waitKey(0)
 cv2.destroyAllWindows()
 
 if len(contours) > 0:
-    epsilon = 1 * cv2.arcLength(contours[0], True)
+    epsilon = 0.02 * cv2.arcLength(contours[0], True)
     approx = cv2.approxPolyDP(contours[0], epsilon, True)
     print(len(approx))
     # 创建一个空白图像用于绘制多边形

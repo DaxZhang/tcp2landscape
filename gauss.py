@@ -2,6 +2,8 @@ from PIL import Image, ImageDraw
 import numpy as np
 import math
 
+GR = (2.23606797749979 - 1) / 2
+
 
 def calculate_linear_function(point1, point2):
     """
@@ -39,6 +41,20 @@ def linear_function(k,b,x):
     return int(k*x+b)
 
 
+def interval_overlap(a,b):
+    
+    if (a[1] < b[0] or a[0] > b[1]):
+        return False
+    if (a[1]<b[1] and a[0] > b[0]) or (a[1]>b[1] and a[0] < b[0]):
+        return True
+    r = [a[0],a[1],b[0],b[1]]
+    r.sort()
+    print(r)
+    if (r[-1]- r[0])/(r[1]-r[2]) > 2:
+        return False
+    return True
+
+
 
 def generate_line_segments(num_segments, num_samples, num_pulse):
     """
@@ -56,24 +72,38 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
     draw = ImageDraw.Draw(image)
     # draw.line([left_point,right_point], fill='black', width=2)
 
-
+    pulses = []
     for i in range(num_pulse):
-        start_point = np.random.uniform(0,width)
-        om = np.random.uniform(0, 4)
-        w = 1/50/(om+1)
-        t =  2 * np.pi / w
-        end_point = start_point + t /2
+
+        while True:
+            start_point = np.random.uniform(0,width)
+            om = np.random.uniform(0, 4)
+            w = 1/50/(om+1)
+            t =  2 * np.pi / w
+            end_point = start_point + t /2
+
+            flag = True
+            for p in pulses:
+                if interval_overlap(p,[start_point,end_point]):
+                    print(p,[start_point,end_point])
+                    flag = False
+            if flag:
+                pulses.append([start_point,end_point])
+                break
+
+
+
         mid = (start_point+end_point) / 2
         phi = - w * start_point
 
-        vr = np.random.uniform(height//4,height//2)
-        A_range = height//2+vr
+        vr = np.random.normal(GR*height,50)
+        A_range = vr
         A = np.random.uniform(A_range-100,A_range)
 
-        x1 = np.random.uniform(start_point,mid)
-        x2 = np.random.uniform(mid,end_point)
-        y1 = triangular_func(x1,w,phi+np.pi,A) + height // 2+ vr
-        y2 = triangular_func(x2,w,phi+np.pi,A) + height // 2+ vr
+        x1 = np.random.uniform((start_point+mid)/2,mid)
+        x2 = np.random.uniform(mid,(end_point+mid)/2)
+        y1 = triangular_func(x1,w,phi+np.pi,A) + vr
+        y2 = triangular_func(x2,w,phi+np.pi,A) + vr
         
         pts = [
             (int(start_point), height // 2+ vr),
@@ -81,7 +111,7 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
             (int(x2),int(y2)),
             (int(end_point), height // 2+ vr)
         ]
-        print(pts)
+        
         draw.line(pts,fill='black',width=2)
 
 
@@ -102,13 +132,14 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
         t =  2 * np.pi / w
         round = (int(width / t)+1) * 4
         
-        oa = np.random.uniform(1,5)
+        oa = np.random.uniform(1,3)
 
+        phi = w * np.random.uniform(0,t)
 
-        vr = np.random.uniform(-100,100)
+        vr = np.random.normal(GR * height, 50)
         
 
-        x_n = 0
+        x_n = -phi
         mid = 0
         pts = [start_point]
         for _ in range(round):
@@ -117,8 +148,8 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
             # x2 = np.random.normal((x_n+mid + t/2)/2,t/16)
             x1 = np.random.uniform(x_n, mid)
             x2 = np.random.uniform(mid,x_n+t/2)
-            y1 = triangular_func(x1,w,A=50*oa) + height//2+vr
-            y2 = triangular_func(x2,w, A=50*oa) + height//2+vr
+            y1 = triangular_func(x1,w,phi=phi, A=50*oa) + vr
+            y2 = triangular_func(x2,w, phi=phi, A=50*oa) + vr
             x_n += t / 2
             
             eps = np.random.uniform(0,1)
@@ -137,7 +168,7 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
 
         for m in range(samples):
             x += x_step
-            y = triangular_func(x,w,A=50*oa)+height//2+vr
+            y = triangular_func(x,w,phi=phi,A=50*oa)+vr
             pt.append((int(x),int(y)))
         # draw.line(pt,fill='blue',width=1)
         
@@ -255,7 +286,7 @@ def generate_image():
 if __name__ == "__main__":
     num_segments =  3 # 折线条数
     num_samples = 5  # 每条折线段上的采样点数
-    num_pulse = 2
+    num_pulse = 1
     result_image = generate_line_segments(num_segments,num_samples,num_pulse)
     result_image.save(f'lines_image.png')
     

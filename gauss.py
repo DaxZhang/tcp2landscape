@@ -114,9 +114,12 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
         
         draw.line(pts,fill='black',width=2)
 
+        pulse_pts = pts
 
 
 
+    # 生成背景线
+    background_pts = []
     for i in range(num_segments):
         start_point = left_point
         points = [start_point]
@@ -142,6 +145,8 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
         x_n = -phi
         mid = 0
         pts = [start_point]
+
+
         for _ in range(round):
             mid = x_n + t / 4
             # x1 = np.random.normal((x_n+mid)/2,t/16)
@@ -202,7 +207,13 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
             
         print(points)
 
-    return image
+
+    # 生成前景线
+    foreground_pts = []
+    for i in range(num_samples):
+        pass
+
+    return image, pulse_pts, background_pts, foreground_pts
 
 
 def generate_perpendicular_tcp(num_flow,num_samples):

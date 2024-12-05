@@ -56,14 +56,14 @@ def interval_overlap(a,b):
 
 
 
-def generate_line_segments(num_segments, num_samples, num_pulse):
+def generate_line_segments(num_background, num_pulse, num_foreground):
     """
     生成指定数量的折线段
     """
     width = 1600
     height = 450
-    left_point = (-200, 0.8*height)  # 起点（在图片左侧外面）
-    right_point = (width + 200, 0)  # 终点（在图片右侧外面）
+    left_point = (-200, int(0.8*height))  # 起点（在图片左侧外面）
+    right_point = [width + 200, 0]  # 终点（在图片右侧外面）
     mid_height = (left_point[1]+right_point[1])//2
     k,b = calculate_linear_function(left_point,right_point)
     print(k,b)
@@ -72,13 +72,14 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
     draw = ImageDraw.Draw(image)
     # draw.line([left_point,right_point], fill='black', width=2)
 
+    pulse_pts = []
     pulses = []
     for i in range(num_pulse):
 
         while True:
             start_point = np.random.uniform(0,width)
-            om = np.random.uniform(0, 4)
-            w = 1/50/(om+1)
+            om = np.random.uniform(0, 1)
+            w = 1/10/(om+1)
             t =  2 * np.pi / w
             end_point = start_point + t /2
 
@@ -96,9 +97,9 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
         mid = (start_point+end_point) / 2
         phi = - w * start_point
 
-        vr = np.random.normal(GR*height,50)
+        vr = np.random.normal(GR*(1-GR)*height,100)
         A_range = vr
-        A = np.random.uniform(A_range-100,A_range)
+        A = np.random.uniform(0,A_range)
 
         x1 = np.random.uniform((start_point+mid)/2,mid)
         x2 = np.random.uniform(mid,(end_point+mid)/2)
@@ -106,37 +107,35 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
         y2 = triangular_func(x2,w,phi+np.pi,A) + vr
         
         pts = [
-            (int(start_point), height // 2+ vr),
+            (int(start_point), vr),
             (int(x1),int(y1)),
             (int(x2),int(y2)),
-            (int(end_point), height // 2+ vr)
+            (int(end_point),  vr)
         ]
         
         draw.line(pts,fill='black',width=2)
 
-        pulse_pts = pts
+        pulse_pts.append(pts)
 
 
 
     # 生成背景线
     background_pts = []
-    for i in range(num_segments):
+    for i in range(num_background):
         start_point = left_point
-        points = [start_point]
-        current_point = [0,0]
+       
         samples = 200
         x_step = width/samples
         x = 0
         pt=[]
 
         
-        om = np.random.uniform(3, 6)
+        om = np.random.uniform(1, 4)
         w = 1/50/(om+1)
         t =  2 * np.pi / w
         round = (int(width / t)+1) * 4
         
-        oa = np.random.uniform(0,3)
-
+        oa = np.random.uniform(1,2)
         phi = w * np.random.uniform(0,t)
 
         vr = np.random.normal((1-GR) * height, 50)
@@ -156,21 +155,21 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
             y1 = triangular_func(x1,w,phi=phi, A=50*oa) + vr
             y2 = triangular_func(x2,w, phi=phi, A=50*oa) + vr
             x_n += t / 2
-            
-            eps = np.random.uniform(0,1)
         
-            if eps > 0:
-                pts.append((x1,y1))
-                pts.append((x2,y2))
-                draw.line(pts,fill='blue',width=2)
-          
-            pts = [(x2,y2)]
-        print(points)
-
+            pts.append((int(x1),int(y1)))
+            if x1 > width:
+                break
+            
+            pts.append((int(x2),int(y2)))
+            if x2 > width:
+                break
+        print(pts)
+        draw.line(tuple(pts),fill='blue',width=2)  
+        background_pts.append(pts)
 
     # 生成前景线
     foreground_pts = []
-    for i in range(num_segments):
+    for i in range(num_foreground):
         start_point = left_point
         points = [start_point]
         current_point = [0,0]
@@ -189,7 +188,7 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
 
         phi = w * np.random.uniform(0,t)
 
-        vr = np.random.normal( height, 30)
+        vr = np.random.normal( 0.9 * height, 30)
         
 
         x_n = -phi
@@ -206,78 +205,40 @@ def generate_line_segments(num_segments, num_samples, num_pulse):
             y1 = triangular_func(x1,w,phi=phi, A=50*oa) + vr
             y2 = triangular_func(x2,w, phi=phi, A=50*oa) + vr
             x_n += t / 2
-            
-            eps = np.random.uniform(0,1)
         
-            if eps > 0:
-                pts.append((x1,y1))
-                pts.append((x2,y2))
-                draw.line(pts,fill='green',width=2)
+            pts.append((int(x1),int(y1)))
+            if x1 > width:
+                break
+            pts.append((int(x2),int(y2)))
+            if x2 > width:
+                break
           
-            pts = [(x2,y2)]
-
-
+        draw.line(pts,fill='green',width=2)
    
-       
-
-            
-            
-        print(points)
-
+        foreground_pts.append(pts)
 
 
     return image, pulse_pts, background_pts, foreground_pts
 
-
-def generate_perpendicular_tcp(num_flow,num_samples):
-    width = 450
-    height = 800
-    up_point = (0,-200)  
-    min_distance= 100
-    image = Image.new('RGB', (width,height), 'white')
-    draw = ImageDraw.Draw(image)
-
-    down_point_xs =[]
-    limit = 0
-    while len(down_point_xs) < num_flow:
-        limit+=1
-        dpx = np.random.randint(100, 450)
-        if not down_point_xs or all(abs(dpx - existing_y) >= min_distance for existing_y in down_point_xs):
-            down_point_xs.append(dpx)
-        if limit > 10000:
-            down_point_xs=[]
-            limit=0
-            continue
-
-    for i in range(num_flow):
-        down_point = (down_point_xs[i],height+200)
-        k, b = calculate_linear_function(up_point,down_point)
-        current_point = [0,0]
-        points = [up_point]
-
-        for j in range(num_samples):
-            step_length = int(np.random.normal((down_point[0]-up_point[0])/num_samples,5))
-            print(i, j, step_length,down_point[0])
-            new_x = current_point[0] + step_length
-            mid_y = linear_function(k,b,(new_x))
-            new_y = np.random.normal(mid_y,50)
-
-            if new_y > height or len(points) >= num_samples:
-                points.append(down_point)
-                draw.line(points, fill='black', width=2)
-                break
-            new_point = (int(new_x), int(new_y))
-            points.append(new_point)
-            current_point = new_point
-
+def draw(w, h, b_pts,f_pts, p_pts):
+    image = Image.new('RGB', (w,h), 'white')
+    drawer = ImageDraw.Draw(image)
+    for lines in b_pts:
+        drawer.line(lines, fill='blue', width=3)
+    for lines in f_pts:
+        drawer.line(lines,fill='green',width=5)
+    for lines in p_pts:
+        drawer.line(lines,fill='black',width=2)
+    
     return image
 
 
 def segment_stream(stream_pts):
     left = stream_pts[0][0]
     right = stream_pts[-1][0]
+    print(left,right)
 
-    mode = np.random.randint(0,2)
+    mode = np.random.randint(0,3)
     if mode == 0:
         # left Golden Section
         x = left + (right - left) * GR
@@ -295,16 +256,75 @@ def segment_stream(stream_pts):
 
         k,b = calculate_linear_function(pred,after)
         y = linear_function(k,b,x)
-        add_pt = [x,y]
+        add_pt = (int(x),y)
 
         stream_pts = stream_pts[:ind]
         stream_pts.append(add_pt)
+        
         return stream_pts
 
     elif mode == 1:
-        pass
+        # right Golden Section
+        x = left + (right - left) * (1 - GR)
+        pred = []
+        after = []
+        ind = 0
+        for pt in stream_pts:
+            if pt[0] < x:
+                pred = pt
+                ind += 1
+                continue
+            if pt[0] > x:
+                after = pt
+                break
+
+        k,b = calculate_linear_function(pred,after)
+        y = linear_function(k,b,x)
+        add_pt = (int(x),y)
+
+        stream_pts = stream_pts[ind+1:]
+        stream_pts.reverse()
+        stream_pts.append(add_pt)
+        stream_pts.reverse()
+
+        return stream_pts
     
+    elif mode == 2:
+        # identify
+        return stream_pts
+    elif mode == 3:
+
+        return stream_pts
+    elif mode == 4:
+        return stream_pts
+    elif mode == 5:
+        return stream_pts
+    elif mode == 6:
+        return stream_pts
     
+
+
+def make_breakpoint(stream_pts):
+    left = stream_pts[0][0]
+    right = stream_pts[-1][0]
+    x = left + (right - left) * GR
+    pred = []
+    after = []
+    ind = 0
+    for pt in stream_pts:
+        if pt[0] < x:
+            pred = pt
+            ind += 1
+            continue
+        if pt[0] > x:
+            after = pt
+            break
+
+    k,b = calculate_linear_function(pred,after)
+    y = linear_function(k,b,x)
+    return (int(x), y)
+
+
 
 
 if __name__ == "__main__":

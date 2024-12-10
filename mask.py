@@ -10,9 +10,9 @@ import numpy as np
 import matplotlib.image as mpimg
 
 
-data_dir = './data/image/'
+data_dir = './data/raw/'
 output_dir = './data/images/'
-mask_dir = './data/mask'
+mask_dir = './data/mask/'
 
 
 
@@ -37,7 +37,6 @@ for filename in os.listdir(data_dir):
  
     #逐个像素读取并处理
     for y in range(img.size[1]):
-        print()
         for x in range(img.size[0]):
             # print(pixdata[x, y][3], end=' ')
             if pixdata[x, y][0] > 0 and pixdata[x, y][1] > 0 and pixdata[x, y][2] > 0 and pixdata[x, y][3] == 255:

@@ -20,14 +20,12 @@ def calculate_linear_function(point1, point2):
     x2, y2 = point2
     # 计算斜率k，根据两点间斜率公式 (y2 - y1) / (x2 - x1)
     if x2 - x1 == 0:
+        print(x1)
         raise ValueError("两点横坐标相同，无法构成一次函数（直线）")
     k = (y2 - y1) / (x2 - x1)
     # 计算截距b，将其中一个点坐标代入y = kx + b 求解b
     b = y1 - k * x1
     return k, b
-
-
-
 
 
 
@@ -220,6 +218,14 @@ def generate_line_segments(num_background, num_pulse, num_foreground):
 
     return image, pulse_pts, background_pts, foreground_pts
 
+
+
+
+
+
+
+
+
 def draw(w, h, b_pts,f_pts, p_pts):
     image = Image.new('RGB', (w,h), 'white')
     drawer = ImageDraw.Draw(image)
@@ -231,6 +237,88 @@ def draw(w, h, b_pts,f_pts, p_pts):
         drawer.line(lines,fill='black',width=2)
     
     return image
+
+
+def generate_peak(stream_pts, num_peaks, width = 1600, h = 450):
+
+    left = stream_pts[0][0]
+    right = stream_pts[-1][0]
+    pulses = []
+    pulse_pts = []
+    for i in range(num_peaks):
+
+        while True:
+            print(max(left,0), min(right,width))
+            start_point = np.random.uniform(max(left,0), min(right,width))
+            
+            om = np.random.uniform(0, 1)
+            w = 1/10/(om+1)
+            t =  2 * np.pi / w
+            end_point = start_point + t /2
+
+            flag = True
+            for p in pulses:
+                if interval_overlap(p,[start_point,end_point]):
+                    print(p,[start_point,end_point])
+                    flag = True
+            if flag:
+                pulses.append([start_point,end_point])
+                break
+            break
+            
+
+
+
+        mid = (start_point+end_point) / 2
+        phi = - w * start_point
+
+
+        x = mid
+
+        pred = stream_pts[0]
+        ind = 0
+        after = stream_pts[-1]
+        for pt in stream_pts:
+            if pt[0] < x:
+                pred = pt
+                ind += 1
+                continue
+            if pt[0] > x:
+                after = pt
+                break
+        
+        
+        
+
+        k,b = calculate_linear_function(pred,after)
+        y = linear_function(k,b,x)
+
+        height = y
+
+
+        vr = np.random.normal(height,10)
+        A_range = 50
+        A = np.random.uniform(0,A_range)
+
+        x1 = np.random.uniform((start_point+mid)/2,mid)
+        x2 = np.random.uniform(mid,(end_point+mid)/2)
+        y1 = triangular_func(x1,w,phi+np.pi,A) + vr
+        y2 = triangular_func(x2,w,phi+np.pi,A) + vr
+        
+
+
+        pts = [
+            (int(start_point), vr),
+            (int(x1),int(y1)),
+            (int(x2),int(y2)),
+            (int(end_point),  vr)
+        ]
+        
+
+        pulse_pts.append(pts)
+    
+    return pulse_pts
+
 
 
 def segment_stream(stream_pts):

@@ -72,7 +72,7 @@ def generate_line_segments(num_background, num_pulse, num_foreground):
 
     pulse_pts = []
     pulses = []
-    for i in range(num_pulse):
+    for i in range(0):
 
         while True:
             start_point = np.random.uniform(0,width)
@@ -85,10 +85,11 @@ def generate_line_segments(num_background, num_pulse, num_foreground):
             for p in pulses:
                 if interval_overlap(p,[start_point,end_point]):
                     print(p,[start_point,end_point])
-                    flag = False
+                    flag = True
             if flag:
                 pulses.append([start_point,end_point])
                 break
+
 
 
 
@@ -219,22 +220,17 @@ def generate_line_segments(num_background, num_pulse, num_foreground):
     return image, pulse_pts, background_pts, foreground_pts
 
 
-
-
-
-
-
-
-
-def draw(w, h, b_pts,f_pts, p_pts):
+def draw(w, h, b_pts,f_pts, p_pts,v_pts):
     image = Image.new('RGB', (w,h), 'white')
     drawer = ImageDraw.Draw(image)
     for lines in b_pts:
-        drawer.line(lines, fill='blue', width=3)
+        drawer.line(lines, fill='blue', width=4)
     for lines in f_pts:
-        drawer.line(lines,fill='green',width=5)
+        drawer.line(lines,fill='gray',width=6)
     for lines in p_pts:
-        drawer.line(lines,fill='black',width=2)
+        drawer.line(lines,fill='black',width=3)
+    for lines in v_pts:
+        drawer.line(lines,fill='green', width=3)
     
     return image
 
@@ -297,8 +293,8 @@ def generate_peak(stream_pts, num_peaks, width = 1600, h = 450):
 
 
         vr = np.random.normal(height,10)
-        A_range = 50
-        A = np.random.uniform(0,A_range)
+        A_range = 60
+        A = np.random.uniform(10,A_range)
 
         x1 = np.random.uniform((start_point+mid)/2,mid)
         x2 = np.random.uniform(mid,(end_point+mid)/2)
@@ -326,7 +322,7 @@ def segment_stream(stream_pts):
     right = stream_pts[-1][0]
     print(left,right)
 
-    mode = np.random.randint(0,3)
+    mode = np.random.randint(0,4)
     if mode == 0:
         # left Golden Section
         x = left + (right - left) * GR
@@ -346,43 +342,42 @@ def segment_stream(stream_pts):
         y = linear_function(k,b,x)
         add_pt = (int(x),y)
 
-        stream_pts = stream_pts[:ind]
-        stream_pts.append(add_pt)
+        left_pts:list = stream_pts[:ind]
+        right_pts:list = stream_pts[ind:]
+
+        # 加点，分割完毕
+        left_pts.append(add_pt)
+        right_pts.insert(0,add_pt)
+
+        left_gr_p, l_id, p, a = make_breakpoint(left_pts)
+
+        left_pts = left_pts[:l_id]
+        left_pts.append(left_gr_p)
         
-        return stream_pts
+        
+        return [left_pts, right_pts]
 
     elif mode == 1:
         # right Golden Section
-        x = left + (right - left) * (1 - GR)
-        pred = []
-        after = []
-        ind = 0
-        for pt in stream_pts:
-            if pt[0] < x:
-                pred = pt
-                ind += 1
-                continue
-            if pt[0] > x:
-                after = pt
-                break
+        add_pt, idx, p, a = make_breakpoint(stream_pts)
 
-        k,b = calculate_linear_function(pred,after)
-        y = linear_function(k,b,x)
-        add_pt = (int(x),y)
-
-        stream_pts = stream_pts[ind+1:]
-        stream_pts.reverse()
-        stream_pts.append(add_pt)
-        stream_pts.reverse()
-
-        return stream_pts
+        left_pts:list = stream_pts[:idx]
+        right_pts:list = stream_pts[idx+1:]
+        
+        return left_pts, right_pts
     
     elif mode == 2:
         # identify
-        return stream_pts
+        add_pt, idx, p, a = make_breakpoint_right(stream_pts)
+
+        left_pts:list = stream_pts[:idx-1]
+        right_pts:list = stream_pts[idx:]
+        
+        return left_pts, right_pts
+        
     elif mode == 3:
 
-        return stream_pts
+        return [stream_pts]
     elif mode == 4:
         return stream_pts
     elif mode == 5:
@@ -393,7 +388,7 @@ def segment_stream(stream_pts):
 
 
 def make_breakpoint(stream_pts):
-    left = stream_pts[0][0]
+    left = max(0,stream_pts[0][0])
     right = stream_pts[-1][0]
     x = left + (right - left) * GR
     pred = []
@@ -410,7 +405,39 @@ def make_breakpoint(stream_pts):
 
     k,b = calculate_linear_function(pred,after)
     y = linear_function(k,b,x)
-    return (int(x), y)
+    return (int(x), y), ind, pred, after
+
+
+def make_breakpoint_right(stream_pts):
+    left = max(0,stream_pts[0][0])
+    right = stream_pts[-1][0]
+    x = left + (right - left) * (1 - GR)
+    pred = []
+    after = []
+    ind = 0
+    for pt in stream_pts:
+        if pt[0] < x:
+            pred = pt
+            ind += 1
+            continue
+        if pt[0] > x:
+            after = pt
+            break
+
+    k,b = calculate_linear_function(pred,after)
+    y = linear_function(k,b,x)
+    return (int(x), y), ind, pred, after
+
+
+def generate_vert_line(stream_pts,up = True):
+    add_pt, idx, p, a = make_breakpoint(stream_pts)
+    hat = add_pt
+    if up:
+        hat = (add_pt[0], add_pt[1]-100)
+    else:
+        hat = (add_pt[0], add_pt[1]+100)
+
+    return [add_pt, hat]
 
 
 

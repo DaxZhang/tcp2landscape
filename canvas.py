@@ -11,6 +11,7 @@ class Canvas():
 
         image = Image.new('RGB', (self.width,self.height), 'white')
         self.image = image
+        self.bgs_size = 0
 
         
         drawer = ImageDraw.Draw(image)
@@ -42,7 +43,11 @@ class Canvas():
         t = 2 * np.pi / omega
         
         oa = 3
-        phi = omega * np.random.uniform(0,t)
+        
+        phi = 3*np.pi /2-omega*(0.5 - self.bias_h)*self.width
+        phi = np.random.normal(phi, np.pi / 12 *omega)
+        if self.bgs_size == 0:
+            phi = omega*np.random.uniform(0,t)
 
         vr = np.random.normal((0.5) * self.height, 50)
 
@@ -54,11 +59,17 @@ class Canvas():
         step = t / 4
         while now_x < self.width:
             now_x += np.random.normal(step,step / 4)
+            if now_x >= self.width:
+                now_x = self.width
             now_y = triangular_func(now_x,omega,phi=phi,A = 50 * oa) + vr
+            
+                
             stream.append((int(now_x),int(now_y)))
 
 
         self.bgs.append(stream)
+        self.bgs_size += 1
+        self.update_bias()
 
 
     def add_foreground_stream(self):
@@ -85,6 +96,11 @@ class Canvas():
 
 
         self.fgs.append(stream)
+
+        self.update_bias()
+
+
+
     def save_(self, filname = 'result_image.png'):
         self.image.save(f'./{filname}')
 
@@ -174,6 +190,8 @@ class Canvas():
             hat = (add_pt[0], add_pt[1]+100)
 
         self.ves.append([add_pt,hat])
+
+        self.update_bias()
         
 
     def make_breakpoint(self,stream_pts,on_left = True):
@@ -203,7 +221,81 @@ class Canvas():
     
     def update_bias(self):
         # 根据bgs fgs的点计算水平和竖直偏移量
-        pass
+
+        bias = 0
+        for line in self.bgs:
+            for idx,point in enumerate(line):
+
+                x = point[0]
+                y = point[1]
+
+                if idx == 0:
+                    continue
+
+                point_pred = line[idx-1]
+                xp = point_pred[0]
+                yp = point_pred[1]
+                xp_b = 1 if xp > self.width/2 else -1
+                yp_w =  (self.height-yp) / self.height
+                p_b = xp_b * yp_w
+                
+
+                x_bias = 1 if x > self.width/2 else -1 # min((x - self.width/2)/(self.width/2),1)
+                y_weight = (self.height-y) / self.height
+            
+                perp_bias = x_bias*y_weight
+
+                balance = (perp_bias + p_b) / 2
+
+                leng = (x - xp)/self.width
+                bias += balance * leng
+
+        for line in self.fgs:
+            for idx,point in enumerate(line):
+
+                x = point[0]
+                y = point[1]
+
+                if idx == 0:
+                    continue
+
+                point_pred = line[idx-1]
+                xp = point_pred[0]
+                yp = point_pred[1]
+                xp_b = 1 if xp > self.width/2 else -1
+                yp_w =  (self.height-yp) / self.height
+                p_b = xp_b * yp_w
+                
+
+                x_bias = 1 if x > self.width/2 else -1 # min((x - self.width/2)/(self.width/2),1)
+                y_weight = (self.height-y) / self.height
+            
+                perp_bias = x_bias*y_weight
+
+                balance = (perp_bias + p_b) / 2
+
+                leng = (x - xp)/self.width
+                bias += balance * leng
+        
+        for vert in self.ves:
+            pt1 = vert[0]
+            pt2 = vert[1]
+
+            x = pt1[0]
+            x_bias = (self.width/2-x)/(self.width)/2
+            y_weight = abs(pt1[1]-pt2[1])/self.height
+            perp_bias = x_bias*y_weight
+            bias += perp_bias
+
+
+
+        
+        self.bias_h = bias
+
+        
+
+
+        
 
     def segment_stream(self):
         # 根据虚实关系打断线
@@ -222,10 +314,11 @@ if __name__ == '__main__':
     canvas = Canvas()
     canvas.add_background_stream()
     canvas.add_background_stream()
-    canvas.add_foreground_stream()
+    # canvas.add_foreground_stream()
     # canvas.add_peaks()
-    canvas.add_verts(canvas.fgs[0])
-    
+    # canvas.add_verts(canvas.fgs[0])
+    canvas.update_bias()
+    print(f'平衡度为：{canvas.bias_h}')
 
     canvas.draw()
 

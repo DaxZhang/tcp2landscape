@@ -13,6 +13,7 @@ class Canvas():
         self.image = image
         self.bgs_size = 0
 
+        self.clock = 0
         
         drawer = ImageDraw.Draw(image)
         self.drawer = drawer
@@ -44,15 +45,18 @@ class Canvas():
         
         oa = 3
         
+        a = np.random.uniform(50,150)
+
+
         phi = 3*np.pi /2-omega*(0.5 - self.bias_h)*self.width
-        phi = np.random.normal(phi, np.pi / 12 *omega)
+        phi = np.random.normal(phi, np.pi / 4 *omega)
         if self.bgs_size == 0:
             phi = omega*np.random.uniform(0,t)
 
-        vr = np.random.normal((0.5) * self.height, 50)
-
+        self.clock += 1
+        vr = np.random.normal(self.clock * 0.25 * self.height, 5)
         now_x = 0
-        now_y = triangular_func(now_x,omega,phi=phi,A = 50 * oa) + vr
+        now_y = triangular_func(now_x,omega,phi=phi,A = a) + vr
 
         stream = [(int(now_x), int(now_y))]
         
@@ -61,7 +65,7 @@ class Canvas():
             now_x += np.random.normal(step,step / 4)
             if now_x >= self.width:
                 now_x = self.width
-            now_y = triangular_func(now_x,omega,phi=phi,A = 50 * oa) + vr
+            now_y = triangular_func(now_x,omega,phi=phi,A = a) + vr
             
                 
             stream.append((int(now_x),int(now_y)))
@@ -70,7 +74,7 @@ class Canvas():
         self.bgs.append(stream)
         self.bgs_size += 1
         self.update_bias()
-
+    
 
     def add_foreground_stream(self):
 
@@ -312,6 +316,7 @@ class Canvas():
 
 if __name__ == '__main__':
     canvas = Canvas()
+    canvas.add_background_stream()
     canvas.add_background_stream()
     canvas.add_background_stream()
     # canvas.add_foreground_stream()

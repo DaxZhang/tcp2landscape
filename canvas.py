@@ -2,12 +2,25 @@ from PIL import Image,ImageDraw
 import numpy as np
 from stream import *
 
+import argparse
+
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--width', type=int, default=1600)
+
+    parser.add_argument('--height', type=int, default=450)
+    parser.add_argument('--filename', type=str, default='result.png')
+
+    args = parser.parse_args()
+    return args
+
+
 
 
 class Canvas():
-    def __init__(self, width = 1600, height = 450):
-        self.width = width
-        self.height = height
+    def __init__(self, args):
+        self.width = args.width
+        self.height = args.height
 
         image = Image.new('RGB', (self.width,self.height), 'white')
         self.image = image
@@ -35,7 +48,38 @@ class Canvas():
         for lines in self.pls:
             self.drawer.line(lines,fill='black',width=3)
         for lines in self.ves:
-            self.drawer.line(lines,fill='green', width=3)
+            self.draw_tree_(lines)
+            
+            # self.drawer.line(lines,fill='green', width=3)
+
+    def draw_tree_(self,tree):
+        pt1 =np.array(tree[0])
+
+        pt2 = np.array(tree[1])
+
+        scale = np.linalg.norm(pt1-pt2)
+
+
+        line_left_base = (int(pt1[0]-0.5*scale*(1-0.618)),pt1[1])
+       
+
+        line_left_end = (int(line_left_base[0] - scale * np.sin(np.radians(5))), int(line_left_base[1] - (0.618+0.618*(1-0.618))* scale * np.cos(np.radians(5))))
+
+        line_right_base =(int(pt1[0]+0.5*scale*0.618),pt1[1])
+        
+        line_right_end = (int(line_right_base[0] + scale * np.sin(np.radians(10))), int(line_right_base[1] -0.618*scale * np.cos(np.radians(10))))
+
+
+        self.drawer.line(tree,fill='green',width=3)
+        self.drawer.line([line_left_base,line_left_end],fill='green',width=3)
+        self.drawer.line([line_right_base,line_right_end],fill='green',width=3)
+
+
+        
+
+        
+
+
 
     def add_background_stream(self):
         # TODO: initialize based on the bias
@@ -78,24 +122,27 @@ class Canvas():
 
     def add_foreground_stream(self):
 
+
+        self.clock+=1
+
         omega = 1/(self.width /  np.random.uniform(6, 11))
 
         t = 2 * np.pi / omega
         
-        oa = np.random.uniform(1,2)
+        oa = np.random.uniform(20,self.height/20)
         phi = omega * np.random.uniform(0,t)
 
-        vr = np.random.normal(0.9 * self.height, 50)
+        vr = np.random.normal(self.clock * 0.1666 * self.height, 10)
 
         now_x = 0
-        now_y = triangular_func(now_x,omega,phi=phi,A = 50 * oa) + vr
+        now_y = triangular_func(now_x,omega,phi=phi,A = oa) + vr
 
         stream = [(int(now_x), int(now_y))]
         
         step = t / 4
         while now_x < self.width:
             now_x += np.random.normal(step,step/4)
-            now_y = triangular_func(now_x,omega,phi=phi,A = 50 * oa) + vr
+            now_y = triangular_func(now_x,omega,phi=phi,A = oa) + vr
             stream.append((int(now_x),int(now_y)))
 
 
@@ -191,7 +238,7 @@ class Canvas():
         else:
             add_pt, idx, p, a = self.make_breakpoint(stream_pts,True)
         hat = add_pt
-        
+        add_pt = (add_pt[0], add_pt[1]+50)
         if up:
             hat = (add_pt[0], add_pt[1]-100)
         else:
@@ -295,8 +342,6 @@ class Canvas():
             perp_bias = x_bias*y_weight
             bias += perp_bias
 
-
-
         
         self.bias_h = bias
 
@@ -319,7 +364,9 @@ class Canvas():
             
 
 if __name__ == '__main__':
-    canvas = Canvas()
+
+    args = parse_arguments()
+    canvas = Canvas(args)
     canvas.add_background_stream()
 
 
@@ -329,12 +376,14 @@ if __name__ == '__main__':
     canvas.add_background_stream()
     canvas.add_background_stream()
     canvas.add_verts(canvas.bgs[-1])
-    # canvas.add_foreground_stream()
+    # for _ in range(5):
+    #     canvas.add_foreground_stream()
     print(f'平衡度为：{canvas.bias_h}')
     # canvas.add_peaks()
     # canvas.update_bias()
 
+
     canvas.draw()
 
-    canvas.save_()
+    canvas.save_(args.filename)
     

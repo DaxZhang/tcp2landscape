@@ -185,7 +185,11 @@ class Canvas():
             self.pls.append(pts)
 
     def add_verts(self, stream_pts, up = True):   
-        add_pt, idx, p, a = self.make_breakpoint(stream_pts)
+
+        if self.bias_h > 0:
+            add_pt, idx, p, a = self.make_breakpoint(stream_pts,False)
+        else:
+            add_pt, idx, p, a = self.make_breakpoint(stream_pts,True)
         hat = add_pt
         
         if up:
@@ -317,13 +321,18 @@ class Canvas():
 if __name__ == '__main__':
     canvas = Canvas()
     canvas.add_background_stream()
+
+
+
+
+
     canvas.add_background_stream()
     canvas.add_background_stream()
+    canvas.add_verts(canvas.bgs[-1])
     # canvas.add_foreground_stream()
-    # canvas.add_peaks()
-    # canvas.add_verts(canvas.fgs[0])
-    canvas.update_bias()
     print(f'平衡度为：{canvas.bias_h}')
+    # canvas.add_peaks()
+    # canvas.update_bias()
 
     canvas.draw()
 

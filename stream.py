@@ -39,6 +39,8 @@ def linear_function(k,b,x):
     return int(k*x+b)
 
 
+K = 3.5
+
 def interval_overlap(a,b):
     
     if (a[1] < b[0] or a[0] > b[1]):
@@ -51,6 +53,28 @@ def interval_overlap(a,b):
     if (r[-1]- r[0])/(r[1]-r[2]) > 2:
         return False
     return True
+
+
+def find_point(stream, x):
+    ind = -1
+    for pt in stream:
+        if pt[0] == x:
+            return pt[1]
+        elif pt[0] < x:
+            ind += 1
+        else:
+            break
+    if ind== -1:
+        return None
+    pred = stream[ind]
+    succ = stream[ind+1]
+
+    k,b = calculate_linear_function(pred,succ)
+
+    y = linear_function(k,b,x)
+    return int(y)
+
+
 
 
 

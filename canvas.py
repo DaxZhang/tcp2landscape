@@ -27,6 +27,11 @@ class Canvas():
         self.bgs_size = 0
 
         self.clock = 0
+        self.v = 5
+        self.t = 0
+        self.dense = 0
+        self.dense_y = 0
+        
         
         drawer = ImageDraw.Draw(image)
         self.drawer = drawer
@@ -48,9 +53,13 @@ class Canvas():
         for lines in self.pls:
             self.drawer.line(lines,fill='black',width=3)
         for lines in self.ves:
-            self.draw_tree_(lines)
+            # self.draw_tree_(lines)
             
-            # self.drawer.line(lines,fill='green', width=3)
+            self.drawer.line(lines,fill='green', width=3)
+
+    def clean(self):
+        self.image = Image.new('RGB', (self.width,self.height), 'white')
+        self.drawer = ImageDraw.Draw(self.image)
 
     def draw_tree_(self,tree):
         pt1 =np.array(tree[0])
@@ -84,29 +93,157 @@ class Canvas():
     def add_background_stream(self):
         # TODO: initialize based on the bias
         # define the triangular function
-        omega = 1/(self.width / np.random.uniform(3, 10))
+        omega = 1/(self.width / np.random.uniform(3,5))
+        
+        
         t = 2 * np.pi / omega
         
-        oa = 3
+        a = np.random.uniform(100,150)
+
         
-        a = np.random.uniform(50,150)
-
-
-        phi = 3*np.pi /2-omega*(0.5 - self.bias_h)*self.width
+        phi = 3*np.pi /2-omega*self.width
         phi = np.random.normal(phi, np.pi / 4 *omega)
         if self.bgs_size == 0:
             phi = omega*np.random.uniform(0,t)
 
+        
+
+
+
         self.clock += 1
         vr = np.random.normal(self.clock * 0.25 * self.height, 5)
+        if self.clock > 1:
+            if self.bias_h <= 0:
+                pt_last = [0, self.height]
+                if self.clock == 2:
+                    pt_last = [0]
+                for s in self.bgs:
+                    if s[-1][1] < self.height and s[-1][1] > 0:
+                        pt_last.append(s[-1][1])
+                if len(pt_last) == 1:
+                    pt_last.append(self.height)
+                pt_last.sort()
+                dis = np.diff(pt_last)
+                idx = np.argmax(dis)
+
+                y1 = pt_last[idx]
+                y2 = pt_last[idx+1]
+                 
+                pt_last_y = y1 + 0.618*(y2 - y1)
+                omega = np.random.uniform(1.25*np.pi/self.width, 2 * np.pi/self.width)
+                
+
+                phi = np.random.uniform(1.5*np.pi,1.75*np.pi) - omega * self.width
+
+                vr = self.height/2 - self.dense_y*self.height/2
+
+                a = (pt_last_y - vr)/triangular_func(self.width,omega,phi,1)
+
+
+                if abs(self.dense_y) < 2e-1:
+                    omega = 1 / (self.width/np.random.uniform(3,7.5))
+                    phi = np.random.uniform(1.5*np.pi,1.9*np.pi) - omega * self.width
+                    vr = pt_last_y + 0.618 * (self.height - pt_last_y)
+                    a = (pt_last_y - vr)/triangular_func(self.width,omega,phi,1)
+                    if a < 0:
+                        a = -a
+                        phi += np.pi
+
+
+                t = 2 * np.pi / omega
+
+
+                print(pt_last)
+                print(dis)
+                print(f'y1 = {y1}, y2 = {y2}, y = {pt_last_y}')
+                
+
+                
+                # if abs(self.dense_y) > 1e-1:
+                #     vr =self.height/2 - self.dense_y*self.height/2
+                #     a = abs(pt_last_y - vr)
+                # else:
+                #     vr = pt_last_y + a
+
+                # phi = np.pi
+                # if vr > pt_last_y:
+                #     phi += 0.5 * np.pi
+
+                # else:
+                #     phi -= 0.5 * np.pi
+                    
+
+
+                
+
+                # phi = phi-omega*self.width
+                # # phi = np.random.uniform(phi, np.pi / 4 *omega)
+                print(np.degrees(phi), omega, a, vr, triangular_func(self.width,omega,phi,a) + vr)
+                
+            else:
+                pt_last = [0, self.height]
+                if self.clock == 2:
+                    pt_last = [0]
+                for s in self.bgs:
+                    if s[0][1] < self.height and s[0][1] > 0:
+                        pt_last.append(s[0][1])
+                if len(pt_last) == 1:
+                    pt_last.append(self.height)
+                pt_last.sort()
+                dis = np.diff(pt_last)
+                idx = np.argmax(dis)
+
+                y1 = pt_last[idx]
+                y2 = pt_last[idx+1]
+                 
+                pt_last_y = y1 + 0.618* (y2 - y1)
+                omega = np.random.uniform(1.25*np.pi/self.width, 2* np.pi/self.width)
+
+                phi = np.random.uniform(1.25*np.pi, 1.5*np.pi)
+
+                vr = self.height/2 - self.dense_y*self.height/2
+
+                a = (pt_last_y - vr)/triangular_func(0,omega,phi,1)
+                if abs(self.dense_y) < 2e-1:
+                    omega = 1 / (self.width/np.random.uniform(3,7.5))
+                    vr = pt_last_y + 0.618 * (self.height - pt_last_y)
+                    phi = np.random.uniform(1.1*np.pi, 1.5*np.pi)
+                    a = (pt_last_y - vr)/triangular_func(0,omega,phi,1)
+                    if a < 0:
+                        a = -a
+                        phi += np.pi
+                print(pt_last)
+                print(dis)
+                print(f'y1 = {y1}, y2 = {y2}, y = {pt_last_y}')
+                t = 2 * np.pi / omega
+                
+                # if abs(self.dense_y) > 1e-1:
+                #     vr =self.height/2 - self.dense_y*self.height/2
+                #     a = abs(pt_last_y - vr)
+                # else:
+                #     vr = pt_last_y + a
+
+                # phi = np.pi
+                # if vr > pt_last_y:
+                #     phi += 0.5 * np.pi
+
+                # else:
+                #     phi -= 0.5 * np.pi
+
+                # omega = np.random.uniform(1.25*np.pi/self.width, 1.5* np.pi/self.width)
+                # phi = phi
+                # # phi = np.random.normal(phi, np.pi / 4 *omega)
+                print(np.degrees(phi), omega, a, vr, triangular_func(0,omega,phi,a) + vr)
+                
+
         now_x = 0
         now_y = triangular_func(now_x,omega,phi=phi,A = a) + vr
 
         stream = [(int(now_x), int(now_y))]
         
-        step = t / 4
+        step = t / 7
         while now_x < self.width:
-            now_x += np.random.normal(step,step / 4)
+            now_x += np.random.normal(step,step / 7)
             if now_x >= self.width:
                 now_x = self.width
             now_y = triangular_func(now_x,omega,phi=phi,A = a) + vr
@@ -238,11 +375,12 @@ class Canvas():
         else:
             add_pt, idx, p, a = self.make_breakpoint(stream_pts,True)
         hat = add_pt
-        add_pt = (add_pt[0], add_pt[1]+50)
+        add_pt = (add_pt[0], add_pt[1]+25)
+        h = 0.618 * self.height
         if up:
-            hat = (add_pt[0], add_pt[1]-100)
+            hat = (add_pt[0], add_pt[1]-h)
         else:
-            hat = (add_pt[0], add_pt[1]+100)
+            hat = (add_pt[0], add_pt[1]+h)
 
         self.ves.append([add_pt,hat])
 
@@ -278,9 +416,10 @@ class Canvas():
         # 根据bgs fgs的点计算水平和竖直偏移量
 
         bias = 0
+        vert = []
         for line in self.bgs:
             for idx,point in enumerate(line):
-
+                vert.append(point[1])
                 x = point[0]
                 y = point[1]
 
@@ -310,7 +449,7 @@ class Canvas():
 
                 x = point[0]
                 y = point[1]
-
+                vert.append(y)
                 if idx == 0:
                     continue
 
@@ -342,17 +481,223 @@ class Canvas():
             perp_bias = x_bias*y_weight
             bias += perp_bias
 
+        self.vert = np.mean(vert)
+        self.bias_h = 0
+        self.bias_v = (self.vert-self.height/2)/(self.height/2)
+
+
+        self.bias_h += self.density()
+
+
+        y = []
+        w = 0
+        for stream in self.bgs:
+            for i, pt in enumerate(stream):
+                if i == 0:
+                    continue
+                pt_pred = stream[i-1]
+                x1,y1 = pt[0],pt[1]
+                x2,y2 = pt_pred[0],pt_pred[1]
+                if y1 < 0:
+                    y1 = 0
+                if y2 < 0:
+                    y2 =0
+                if y1 > self.height:
+                    y1 = self.height
+                if y2 > self.height:
+                    y2 = self.height
+                
+                y.append((y1+y2)/2 )
+                
+                
         
-        self.bias_h = bias
+        self.dense_y = (np.mean(y)-self.height/2)/(self.height/2) 
+
+
+
+
+    
+    def density_at(self, x):
+        y = []
+        for stream in self.bgs:
+            y.append(find_point(stream,x))
+        
+        if len(y) == 1:
+            y.append(0)
+        y.sort()
+        # if y[0] >= 0:
+        #     y.insert(0,0)
+        
+        y = np.array(y)
+
+        dis = np.diff(y)
+        var = np.var(dis)
+        avg = np.mean(dis)
+
+        return - avg/self.height + var/self.height**2
+
+
+    
+    def density(self):
+        num = 10
+        stp = np.linspace(0, self.width,num)
+
+        l_dense = []
+        left_stp = stp[:num//2]
+        for x in left_stp:
+            l_dense.append(self.density_at(x))
+        left_dense = np.average(l_dense)
+
+        r_dense = []
+        right_stp = stp[num//2:]
+        for x in right_stp:
+            r_dense.append(self.density_at(x))
+        right_dense = np.average(r_dense)
+        self.dense = right_dense - left_dense
+        return self.dense
+
+        
+
+    def segment(self, stream):
+        segments = []
+        now_seg = []
+        is_pred_visi = False
+        for i,pt in enumerate(stream):
+            # print("segs: ",segments)
+            # print("now segs: ",now_seg)
+            # print(self.is_visible(pt),'before',is_pred_visi)
+
+            if self.is_visible(pt):
+                if is_pred_visi == False:
+                    is_pred_visi = True
+                    if i != 0:
+                        pred_pt = stream[i-1]
+                        k,b = calculate_linear_function(pred_pt,pt)
+                        if pred_pt[0] < 0:
+                            x = 0
+                            y = int(b)
+                        if pred_pt[1] < 0:
+                            y = 0
+                            x = linear_function(1/k,-b/k,y)
+                        if pred_pt[1] > self.height:
+                            y = self.height
+                            x = linear_function(1/k,-b/k,y)
+                        add_pt = (int(x),int(y))
+                        now_seg.append(add_pt)
+                        now_seg.append(pt)
+                            
+                    else:
+                        now_seg.append(pt)
+                else:
+                    now_seg.append(pt)
+                if i == len(stream) - 1:
+                    segments.append(now_seg.copy())
+                    now_seg.clear()
+                
+            else:
+                if is_pred_visi == False:
+                    continue
+                else:
+                    is_pred_visi = False
+                    pred_pt = stream[i-1]
+                    k,b = calculate_linear_function(pred_pt,pt)
+                    if pt[0] > self.width:
+                        x = self.width
+                        y = linear_function(k,b,x)
+                    if pt[1] < 0:
+                        y = 0
+                        x = linear_function(1/k,-b/k,y)
+                    if pt[1] > self.height:
+                        y = self.height
+                        x = linear_function(1/k,-b/k,y)
+                    add_pt = (int(x),int(y))
+                    now_seg.append(add_pt)
+                    segments.append(now_seg.copy())
+                    now_seg.clear()
+        return segments
+
+    def is_visible(self,pt):
+        if pt[0] < 0 or pt[0] > self.width:
+            return False
+        
+        if pt[1] < 0 or pt[1] > self.height:
+            return False
+        
+        return True
+    
+    def add_tree(self):
+        best_deviation = np.inf
+        best_pt = None
+        best_pred = None
+        best_succ= None
+        for segment in self.bgs:
+            
+            add_pt, _, pred, succ =make_breakpoint(segment)
+            x_dva = min(
+                (add_pt[0] - self.width/3)**2,
+                (add_pt[0] - 2* self.width/3) **2,
+            )/self.width**2
+            y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
+            # lor = 1 if add_pt[0] > self.width else -1
+            dva = x_dva + y_dva 
+            if dva < best_deviation:
+                best_deviation = dva
+                best_pt = add_pt
+                best_pred = pred
+                best_succ = succ
+            
+            add_pt, _, pred,succ =make_breakpoint_right(segment)
+            x_dva = min(
+                (add_pt[0] - self.width/3)**2,
+                (add_pt[0] - 2* self.width/3) **2,
+            )/self.width**2
+            y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
+            dva = x_dva + y_dva
+            if dva < best_deviation:
+                best_deviation = dva
+                best_pt = add_pt
+                best_succ = succ
+                best_pred = pred
+                
+        k,b = calculate_linear_function(best_pred, best_succ)
+        print(f'best dva: {dva}')
+        # print(f'best pred: {best_pred}, best succ: {best_succ}')
+        self.drawer.circle(best_pred,4,fill='black')
+        self.drawer.circle(best_succ,4,fill='black')
+        # print(k,b)
+
+        dgr = np.arctan(-k)
+        # print(np.degrees(dgr))
+        basept = (best_pt[0] ,best_pt[1]+25)
+            
+        endpt = (int(basept[0] - 100* np.sin(dgr)), int(basept[1] - 100*np.cos(dgr)))
+
+        self.ves.append([basept, endpt])
+        print(self.ves)
+
+
 
         
 
 
         
+
+            
 
     def segment_stream(self):
-        # 根据虚实关系打断线
-        pass
+        temp = []
+        
+        for stream in self.bgs:
+            print("before segment: ",stream)
+
+            segs = self.segment(stream)
+
+            print('after segment: ',segs)
+            temp+=segs
+
+        self.bgs = temp
+
+
 
     def render_(self):
         # 根据折线匹配图像并放进去
@@ -369,16 +714,31 @@ if __name__ == '__main__':
     canvas = Canvas(args)
     canvas.add_background_stream()
 
+    canvas.draw()
+    canvas.save_('result1.png')
 
 
-
-
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
     canvas.add_background_stream()
+    canvas.draw()
+    canvas.save_('result2.png')
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
     canvas.add_background_stream()
-    canvas.add_verts(canvas.bgs[-1])
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
+    canvas.draw()
+
+    canvas.save_('result_bef.png')
+
+    canvas.clean()
+    canvas.segment_stream()
+    canvas.add_tree()
+
+    # canvas.add_verts(canvas.bgs[-1])
     # for _ in range(5):
     #     canvas.add_foreground_stream()
-    print(f'平衡度为：{canvas.bias_h}')
     # canvas.add_peaks()
     # canvas.update_bias()
 

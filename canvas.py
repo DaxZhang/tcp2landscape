@@ -22,7 +22,10 @@ class Canvas():
         self.width = args.width
         self.height = args.height
 
-        image = Image.new('RGB', (self.width,self.height), 'white')
+        self.background_color = (255,255,255)
+        self.stream_color = (0,0,255)
+        self.tree_color = (0,255,0)
+        image = Image.new('RGB', (self.width,self.height), self.background_color)
         self.image = image
         self.bgs_size = 0
 
@@ -47,7 +50,7 @@ class Canvas():
 
     def draw(self):
         for lines in self.bgs:
-            self.drawer.line(lines, fill='blue', width=4)
+            self.drawer.line(lines, fill=self.stream_color, width=4)
         for lines in self.fgs:
             self.drawer.line(lines,fill='gray',width=6)
         for lines in self.pls:
@@ -55,10 +58,10 @@ class Canvas():
         for lines in self.ves:
             # self.draw_tree_(lines)
             
-            self.drawer.line(lines,fill='green', width=3)
+            self.drawer.line(lines,fill=self.tree_color, width=3)
 
     def clean(self):
-        self.image = Image.new('RGB', (self.width,self.height), 'white')
+        self.image = Image.new('RGB', (self.width,self.height), self.background_color)
         self.drawer = ImageDraw.Draw(self.image)
 
     def draw_tree_(self,tree):

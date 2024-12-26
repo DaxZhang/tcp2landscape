@@ -1,7 +1,7 @@
 from PIL import Image,ImageDraw
 import numpy as np
 from stream import *
-
+import os 
 import argparse
 
 def parse_arguments():
@@ -638,8 +638,8 @@ class Canvas():
                 (add_pt[0] - 2* self.width/3) **2,
             )/self.width**2
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
-            # lor = 1 if add_pt[0] > self.width else -1
-            dva = x_dva + y_dva 
+            lor = 1 if add_pt[0] > self.width / 2 else -1
+            dva = x_dva + y_dva - self.dense * lor
             if dva < best_deviation:
                 best_deviation = dva
                 best_pt = add_pt
@@ -652,7 +652,8 @@ class Canvas():
                 (add_pt[0] - 2* self.width/3) **2,
             )/self.width**2
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
-            dva = x_dva + y_dva
+            lor = 1 if add_pt[0] > self.width / 2 else -1
+            dva = x_dva + y_dva - self.dense * lor
             if dva < best_deviation:
                 best_deviation = dva
                 best_pt = add_pt
@@ -708,21 +709,27 @@ class Canvas():
 
             
 
-if __name__ == '__main__':
+if __name__ == '__main__': 
+    if not os.path.exists("./runs"):
+        os.mkdir('./runs/')
+    
+    task_bef = len(os.listdir("./runs/"))
+    base_dir = f'./runs/exp{task_bef}/'
+    os.mkdir(base_dir)
 
     args = parse_arguments()
     canvas = Canvas(args)
     canvas.add_background_stream()
 
     canvas.draw()
-    canvas.save_('result1.png')
+    canvas.save_(f'{base_dir}result1.png')
 
 
     print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
     print(f"dense= {canvas.dense}")
     canvas.add_background_stream()
     canvas.draw()
-    canvas.save_('result2.png')
+    canvas.save_(f'{base_dir}result2.png')
     print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
     print(f"dense= {canvas.dense}")
     canvas.add_background_stream()
@@ -730,7 +737,7 @@ if __name__ == '__main__':
     print(f"dense= {canvas.dense}")
     canvas.draw()
 
-    canvas.save_('result_bef.png')
+    canvas.save_(f'{base_dir}result_bef.png')
 
     canvas.clean()
     canvas.segment_stream()
@@ -745,5 +752,5 @@ if __name__ == '__main__':
 
     canvas.draw()
 
-    canvas.save_(args.filename)
+    canvas.save_(f'{base_dir}{args.filename}')
     

@@ -639,7 +639,7 @@ class Canvas():
             )/self.width**2
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
             lor = 1 if add_pt[0] > self.width / 2 else -1
-            dva = x_dva + y_dva - self.dense * lor
+            dva = x_dva + y_dva + self.dense * lor
             if dva < best_deviation:
                 best_deviation = dva
                 best_pt = add_pt
@@ -653,7 +653,7 @@ class Canvas():
             )/self.width**2
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
             lor = 1 if add_pt[0] > self.width / 2 else -1
-            dva = x_dva + y_dva - self.dense * lor
+            dva = x_dva + y_dva + self.dense * lor
             if dva < best_deviation:
                 best_deviation = dva
                 best_pt = add_pt

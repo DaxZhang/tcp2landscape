@@ -34,6 +34,7 @@ def get_contour(filename, debug = False):
             # 可以根据需要对方向进行进一步处理或统计
 
     cv2.imshow('Contours', img_rgb)
+    cv2.imwrite('Contour.png',img_rgb)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
@@ -47,12 +48,24 @@ def get_contour(filename, debug = False):
             # 创建一个空白图像用于绘制多边形
             poly_image = np.zeros_like(img_rgb)
             cv2.drawContours(poly_image, [approx], 0, (0, 255, 0), 2)
-            cv2.imshow("Polygon", poly_image)
+            h, w,_ = poly_image.shape
+            cv2.imshow("Polygon", cv2.resize(poly_image,(w//2,h//2)))
+            cv2.imwrite('./polygon.png',poly_image)
             cv2.waitKey(0)
             cv2.destroyAllWindows()
         
+        print(approx)
 
         return approx
+def get_orient(ply,debug = False):
+    ply = np.array(ply)
+    orient = np.array([0.,0.])
+    for i, pt in enumerate(ply):
+        pt_pred = ply[i-1]
+        orient += abs(pt-pt_pred)*np.linalg.norm((pt-pt_pred))
+    
+    return orient/np.linalg.norm(orient)
+
 
 
 
@@ -60,5 +73,6 @@ def get_contour(filename, debug = False):
 
 if __name__ == '__main__':
 
-    filename = 'mask_shan1.png'
-    get_contour(filename,debug= True)
+    filename = 'mask_shan2.png'
+    ply = get_contour(filename,True)
+    print(get_orient(ply))

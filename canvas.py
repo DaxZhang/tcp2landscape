@@ -3,6 +3,10 @@ import numpy as np
 from stream import *
 import os 
 import argparse
+import torch
+import matplotlib.pyplot as plt
+
+from geomloss import SamplesLoss
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -261,12 +265,8 @@ class Canvas():
     
 
     def add_foreground_stream(self):
-
-
         self.clock+=1
-
         omega = 1/(self.width /  np.random.uniform(6, 11))
-
         t = 2 * np.pi / omega
         
         oa = np.random.uniform(20,self.height/20)
@@ -707,53 +707,175 @@ class Canvas():
         # 根据折线匹配图像并放进去
         pass
 
+
+    def point_normalize(self, stream):
+        stream = np.array(stream, dtype= np.float32)
+        stream = stream.T
+        # print(stream)
+        stream[0] = stream[0] / (self.width+0.)
+        stream[1] = stream[1] / (self.height+0.)
+
+        return stream.T
     
+    def point_recover(self,stream):
+        stream = np.array(stream,dtype=np.float32)
+        stream = stream.T
+        stream[0] = stream[0] * self.width
+        stream[1] = stream[1] * self.height
+        stream = stream.T
+        stream = np.array(stream,dtype=np.int32)
+        return stream
+        
+
+
+    def optim_stream_and_ply(self,stream, ply):
+        ply = np.array(ply)/2
+        stream = self.point_normalize(stream)
+        
+        ply = self.point_normalize(ply)
+        epc = 200
+
+        translate = torch.nn.Parameter(torch.tensor([0.,0.],requires_grad=True))
+        scale = torch.nn.Parameter(torch.tensor([2.,2.],requires_grad=True))
+        ply = torch.from_numpy(ply)
+        stream = torch.from_numpy(stream).unsqueeze(1)
+        loss_func = SamplesLoss('sinkhorn',blur=0.01)
+        loss_record = []
+
+        optimizer = torch.optim.Adam([translate,scale], lr = 0.001)
+        for i in range(epc):
+            optimizer.zero_grad()
+
+            ply_mod = ply*scale
+            ply_mod += translate
+
+            
+            ply_mod = torch.clamp_(ply_mod,0.,1.)
+
+            ply_mod_s = ply_mod.unsqueeze(1)
+            dist_mat = ply_mod_s-stream.transpose(0,1)
+            dist_mat = torch.sum(dist_mat**2, dim=-1)
+
+
+            min_dist_val,min_dist_ind = torch.min(dist_mat,dim=-1)
+            # print(min_dist_ind)
+            match_point = stream[min_dist_ind]
+            # print(match_point)
+            # exit()
+            dist = torch.sum((ply_mod - match_point)**2)
+            # [g] = torch.autograd.grad(dist,[ply_mod])
+
+            
+            dist.backward(retain_graph=True)
+            # print(translate.grad)
+            # print(dist.grad)
+            optimizer.step()
+           
+
+            loss_record.append(dist.detach().numpy())
+
+            print(f"epoch {i+1}, loss {dist}.")
+        
+        print("t: ",translate)
+        print("s: ",scale)
+        
+        e = list(range(epc))
+        plt.plot(e,loss_record)
+        plt.savefig(f'loss')
+        
+        ply_mod = ply*scale
+        ply_mod += translate
+        ply_mod = torch.clamp_(ply_mod,0.,1.)
+
+        print(canvas.point_recover(stream.squeeze(1)))
+        print(canvas.point_recover(ply_mod.detach().numpy()))
+        
+        s = []
+        p = []
+
+        for pt in canvas.point_recover(stream.squeeze(1)):
+            s.append(tuple(pt))
+        for pt in canvas.point_recover(ply_mod.detach().numpy()):
+            p.append(tuple(pt))
+        
+
+        print(s,p)
+        self.drawer.line(s,fill= 'blue',width=2)
+        self.drawer.line(p,fill= 'green',width=2)
+        canvas.save_()
+        
+
+        
+
+            
+            
+
+
+
+
+
+        
+
+        
+
+        
+        
+
         
 
             
 
 if __name__ == '__main__': 
-    if not os.path.exists("./runs"):
-        os.mkdir('./runs/')
+    # if not os.path.exists("./runs"):
+    #     os.mkdir('./runs/')
     
-    task_bef = len(os.listdir("./runs/"))
-    base_dir = f'./runs/exp{task_bef}/'
-    os.mkdir(base_dir)
+    # task_bef = len(os.listdir("./runs/"))
+    # base_dir = f'./runs/exp{task_bef}/'
+    # os.mkdir(base_dir)
 
     args = parse_arguments()
     canvas = Canvas(args)
-    canvas.add_background_stream()
+    # canvas.add_background_stream()
 
-    canvas.draw()
-    canvas.save_(f'{base_dir}result1.png')
-
-
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.add_background_stream()
-    canvas.draw()
-    canvas.save_(f'{base_dir}result2.png')
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.add_background_stream()
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.draw()
-
-    canvas.save_(f'{base_dir}result_bef.png')
-
-    canvas.clean()
-    canvas.segment_stream()
-    canvas.add_tree()
-
-    # canvas.add_verts(canvas.bgs[-1])
-    # for _ in range(5):
-    #     canvas.add_foreground_stream()
-    # canvas.add_peaks()
-    # canvas.update_bias()
+    # canvas.draw()
+    # canvas.save_(f'{base_dir}result1.png')
 
 
-    canvas.draw()
+    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    # print(f"dense= {canvas.dense}")
+    # canvas.add_background_stream()
+    # canvas.draw()
+    # canvas.save_(f'{base_dir}result2.png')
+    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    # print(f"dense= {canvas.dense}")
+    # canvas.add_background_stream()
+    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    # print(f"dense= {canvas.dense}")
+    # canvas.draw()
 
-    canvas.save_(f'{base_dir}{args.filename}')
+    # canvas.save_(f'{base_dir}result_bef.png')
+
+    # canvas.clean()
+    # canvas.segment_stream()
+    # canvas.add_tree()
+
+    # # canvas.add_verts(canvas.bgs[-1])
+    # # for _ in range(5):
+    # #     canvas.add_foreground_stream()
+    # # canvas.add_peaks()
+    # # canvas.update_bias()
+
+
+    # canvas.draw()
+
+    # canvas.save_(f'{base_dir}{args.filename}')
+
+    ply = [[1260,407],
+        [ 668  ,  0],
+        [ 479 ,  78],
+        [   0 , 761],
+        [1094 , 761]
+    ]
+    stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
+    canvas.optim_stream_and_ply(stream,ply)
     

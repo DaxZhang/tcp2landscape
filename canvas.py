@@ -5,7 +5,7 @@ import os
 import argparse
 import torch
 import matplotlib.pyplot as plt
-
+import cv2
 from geomloss import SamplesLoss
 
 def parse_arguments():
@@ -248,9 +248,9 @@ class Canvas():
 
         stream = [(int(now_x), int(now_y))]
         
-        step = t / 7
+        step = t / 7#t is the period of the triangular function
         while now_x < self.width:
-            now_x += np.random.normal(step,step / 7)
+            now_x += np.random.normal(step,step / 7)#plus at list 1/7 of the period
             if now_x >= self.width:
                 now_x = self.width
             now_y = triangular_func(now_x,omega,phi=phi,A = a) + vr
@@ -322,6 +322,9 @@ class Canvas():
                         print(p,[start_point,end_point])
                         flag = True
                         break
+                if (start_point+end_point) / 2 >= stream_pts[-1][0]:
+                    print((start_point+end_point) / 2 ,">=",stream_pts[-1][0])
+                    continue
                 if flag:
                     pulses.append([start_point,end_point])
                     break
@@ -344,6 +347,7 @@ class Canvas():
                     after = pt
                     break
             
+            print("x: ",x,"   stream_pts: ",stream_pts,"    pred: ",pred,"    after: ",after)
             k,b = calculate_linear_function(pred,after)
             y = linear_function(k,b,x)
 
@@ -523,10 +527,13 @@ class Canvas():
     def density_at(self, x):
         y = []
         for stream in self.bgs:
+            print("stream: ",stream)
             y.append(find_point(stream,x))
         
         if len(y) == 1:
             y.append(0)
+        #rid of None
+        y = [point for point in y if point is not None]
         y.sort()
         # if y[0] >= 0:
         #     y.insert(0,0)
@@ -804,78 +811,242 @@ class Canvas():
         self.drawer.line(p,fill= 'green',width=2)
         canvas.save_()
         
+    def plot_polygon(self,stream):
+        """plot the stream as a polygon on the canvas
+            saved as a np.ndarray with shape (height, width)
+            """
+        point_list=stream
+        #the start point on wich edge
+        if(point_list[0][1]<self.height):#start on the left
+            point_list.insert(0,(0,self.height))
 
+        if(point_list[-1][1]<self.height):#end on the right
+            point_list.append((stream[-1][0],self.height))
         
+        point_list.append(point_list[0])#connect the start and end point
+        point_list =  np.array([point_list], dtype=np.int32) 
+        mask = np.zeros((self.height, self.width), dtype=np.uint8)
+        cv2.fillPoly(mask, [point_list], color=255)  # 填充多边形为白色
+        # print(mask.shape)(self.height, self.width)
+        # mask_single_channel = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        # print(mask_single_channel.shape)
+        return mask
 
-            
-            
+    def overlap(self,stream_mask, mat_mask, scale_factor=1,tx=0,ty=0,draw=False):
+        """
+        stream_mask: the mask of the stream, np.ndarray, shape (height, width), color=0 or 255
+        """
+        # print(type(mat_mask))
+        # print(mat_mask.shape)    
+        mat_resized = cv2.resize(mat_mask, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_LINEAR)
+        M = np.float32([[1, 0, tx], [0, 1, ty]])  # 平移矩阵
+        mat_transformed = cv2.warpAffine(mat_resized, M, (stream_mask.shape[1], stream_mask.shape[0]))
+        overlap_range = cv2.bitwise_and(stream_mask, mat_transformed)
+        overlap_area = np.count_nonzero(overlap_range)
+        mat_area = np.count_nonzero(mat_transformed)
+        stream_area = np.count_nonzero(stream_mask)
+        if draw:
+            self.draw_overlap(stream_mask, mat_transformed)
+        # print("overlap area: ", overlap_area)
+        # cv2.imshow("Image 1", stream_mask)
+        # cv2.imshow("Image 2", mat_transformed)
+        # cv2.imshow("Overlap", overlap_range)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        return mat_area+stream_area-overlap_area*2
+
+    def optim_mask(self,stream,mat_path):
+        """gradient descent to optimize the mask of the stream"""
+        stream_mask = self.plot_polygon(stream)
+        mat_mask = cv2.imread(mat_path, cv2.IMREAD_GRAYSCALE)
+        scale_factor = 1  # 缩放因子
+        tx, ty = 0, 0  # 水平平移，垂直平移 
+        current_overlap_loss = self.overlap(stream_mask, mat_mask, scale_factor,tx,ty)
+        learning_rate = 0.1  # "学习率"
+        unit_offset = 5  # 单位平移量
+        sum_pix=self.width*self.height
+        max_iter = 300  # 最大迭代次数
+        loss_record = [current_overlap_loss]
+        x_record = [tx]
+        y_record = [ty]
+        scale_record = [scale_factor]
+        clear_folder('optVis')
+        for i in range(max_iter):
+            scale_loss = self.overlap(stream_mask, mat_mask, scale_factor*(1+learning_rate),tx,ty) - current_overlap_loss
+            tx_loss = self.overlap(stream_mask, mat_mask, scale_factor,tx+unit_offset,ty) - current_overlap_loss
+            ty_loss = self.overlap(stream_mask, mat_mask, scale_factor,tx,ty+unit_offset) - current_overlap_loss
+            scale_factor = scale_factor*(1 - learning_rate*scale_loss/sum_pix)
+            tx = tx - learning_rate*tx_loss/sum_pix
+            ty = ty - learning_rate*ty_loss/sum_pix
+            current_overlap_loss = self.overlap(stream_mask, mat_mask, scale_factor,tx,ty,True)
+            loss_record.append(current_overlap_loss)
+            x_record.append(tx)
+            y_record.append(ty)
+            scale_record.append(scale_factor)
+
+        print(f"scale_factor: {scale_factor}, tx: {tx}, ty: {ty}")
+        self.images_to_video('optVis', 60)
+        plt.plot(loss_record)
+        plt.show()
+        plt.plot(x_record)
+        plt.plot(y_record)
+        plt.show()
+        plt.plot(scale_record)
+        plt.show()
+
+    def draw_overlap(self,image1, image2):
+        # 红色图片：灰度值映射到红色通道，透明度 50%
+        red_image = np.zeros((image1.shape[0], image1.shape[1], 3), dtype=np.uint8)
+        red_image[:, :, 2] = image1  # 红色通道
+        red_image = cv2.addWeighted(red_image, 0.5, np.zeros_like(red_image), 0.5, 0)  # 透明度 50%
+
+        # 蓝色图片：灰度值映射到蓝色通道，透明度 50%
+        blue_image = np.zeros((image2.shape[0], image2.shape[1], 3), dtype=np.uint8)
+        blue_image[:, :, 0] = image2  # 蓝色通道
+        blue_image = cv2.addWeighted(blue_image, 0.5, np.zeros_like(blue_image), 0.5, 0)  # 透明度 50%
+
+        # 重叠图片
+        overlay_image = cv2.addWeighted(red_image, 1, blue_image, 1, 0)
+
+        # 保存结果
+        output_folder = "optVis"
+        os.makedirs(output_folder, exist_ok=True)  # 创建文件夹（如果不存在）
+        # 根据现存文件数命名
+        existing_files = os.listdir(output_folder)
+        new_file_name = f"overlay_{len(existing_files):05}.png"
+        output_path = os.path.join(output_folder, new_file_name)
+
+        # 保存图片
+        cv2.imwrite(output_path, overlay_image)
+
+    def images_to_video(self, folder_name, fps=60):
+        """
+        将指定文件夹中的所有图片连缀生成一段视频。
+
+        参数:
+            folder_name (str): 图片文件夹路径。
+            fps (int): 视频帧率（每秒帧数）。
+
+        返回:
+            str: 生成的视频文件路径。
+        """
+        # 获取所有图片文件
+        images = [img for img in os.listdir(folder_name) if img.endswith(".png")]
+        images.sort()  # 按文件名排序
+
+        # 检查是否有图片
+        if not images:
+            raise ValueError("未找到图片文件，请检查文件夹路径")
+
+        # 读取第一张图片以获取分辨率
+        first_image_path = os.path.join(folder_name, images[0])
+        frame = cv2.imread(first_image_path)
+        height, width, layers = frame.shape
+
+        # 视频输出路径
+        output_video_path = os.path.join(folder_name, "video.mp4")
+
+        # 设置视频参数
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # 编码格式
+        video = cv2.VideoWriter(output_video_path, fourcc, fps, (width, height))
+
+        # 将每张图片写入视频
+        for image in images:
+            image_path = os.path.join(folder_name, image)
+            print(f"正在写入图片: {image_path}")
+            frame = cv2.imread(image_path)
+            video.write(frame)  # 写入帧
+
+        # 释放视频资源
+        video.release()
+
+
+def clear_folder(folder_path):
+    """
+    删除文件夹内的所有元素（包括文件和子文件夹）。
+
+    参数:
+        folder_path (str): 文件夹路径。
+    """
+    # 检查文件夹是否存在
+    if not os.path.exists(folder_path):
+        raise ValueError(f"文件夹不存在: {folder_path}")
+
+    # 遍历文件夹内的所有元素
+    for item in os.listdir(folder_path):
+        item_path = os.path.join(folder_path, item)
+
+        # 如果是文件，直接删除
+        if os.path.isfile(item_path):
+            os.remove(item_path)
+
+    print(f"文件夹已清空: {folder_path}")
 
 
 
 
 
-        
 
-        
 
-        
-        
 
-        
 
-            
+
+
+
+
 
 if __name__ == '__main__': 
-    # if not os.path.exists("./runs"):
-    #     os.mkdir('./runs/')
+    if not os.path.exists("./runs"):
+        os.mkdir('./runs/')
     
-    # task_bef = len(os.listdir("./runs/"))
-    # base_dir = f'./runs/exp{task_bef}/'
-    # os.mkdir(base_dir)
+    task_bef = len(os.listdir("./runs/"))
+    base_dir = f'./runs/exp{task_bef}/'
+    os.mkdir(base_dir)
 
     args = parse_arguments()
     canvas = Canvas(args)
-    # canvas.add_background_stream()
+    canvas.add_background_stream()
 
-    # canvas.draw()
-    # canvas.save_(f'{base_dir}result1.png')
-
-
-    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    # print(f"dense= {canvas.dense}")
-    # canvas.add_background_stream()
-    # canvas.draw()
-    # canvas.save_(f'{base_dir}result2.png')
-    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    # print(f"dense= {canvas.dense}")
-    # canvas.add_background_stream()
-    # print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    # print(f"dense= {canvas.dense}")
-    # canvas.draw()
-
-    # canvas.save_(f'{base_dir}result_bef.png')
-
-    # canvas.clean()
-    # canvas.segment_stream()
-    # canvas.add_tree()
-
-    # # canvas.add_verts(canvas.bgs[-1])
-    # # for _ in range(5):
-    # #     canvas.add_foreground_stream()
-    # # canvas.add_peaks()
-    # # canvas.update_bias()
+    canvas.draw()
+    canvas.save_(f'{base_dir}result1.png')
 
 
-    # canvas.draw()
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
+    canvas.add_background_stream()
+    canvas.draw()
+    canvas.save_(f'{base_dir}result2.png')
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
+    canvas.add_background_stream()
+    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+    print(f"dense= {canvas.dense}")
+    canvas.draw()
 
-    # canvas.save_(f'{base_dir}{args.filename}')
+    canvas.save_(f'{base_dir}result_bef.png')
 
-    ply = [[1260,407],
-        [ 668  ,  0],
-        [ 479 ,  78],
-        [   0 , 761],
-        [1094 , 761]
-    ]
-    stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
-    canvas.optim_stream_and_ply(stream,ply)
+    canvas.clean()
+    canvas.segment_stream()
+    canvas.add_tree()
+
+    canvas.add_verts(canvas.bgs[-1])
+    for _ in range(5):
+        canvas.add_foreground_stream()
+    canvas.add_peaks()
+    canvas.update_bias()
+
+
+    canvas.draw()
+
+    canvas.save_(f'{base_dir}{args.filename}')
+
+    # ply = [[1260,407],
+    #     [ 668  ,  0],
+    #     [ 479 ,  78],
+    #     [   0 , 761],
+    #     [1094 , 761]
+    # ]
+    # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
+    # canvas.optim_stream_and_ply(stream,ply)
     
+    canvas.optim_mask(canvas.bgs[-2],'data/mask/mask_shan1.png')

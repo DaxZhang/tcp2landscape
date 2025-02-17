@@ -12,7 +12,7 @@ mask_dir = './data/mask/'
 
 
 def get_contour(filename, debug = False):
-    img = cv2.imread(mask_dir+filename,cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(filename,cv2.IMREAD_GRAYSCALE)
 
     # 高斯滤波
     blurred = cv2.GaussianBlur(img, (9, 9), 0)
@@ -33,10 +33,11 @@ def get_contour(filename, debug = False):
             direction = np.arctan2(point2[1] - point1[1], point2[0] - point1[0]) * 180 / np.pi
             # 可以根据需要对方向进行进一步处理或统计
 
-    cv2.imshow('Contours', img_rgb)
-    cv2.imwrite('Contour.png',img_rgb)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    if debug:        
+        cv2.imshow('Contours', img_rgb)
+        cv2.imwrite('Contour.png',img_rgb)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
 
     if len(contours) > 0:
         epsilon = 0.02 * cv2.arcLength(contours[0], True)
@@ -54,7 +55,7 @@ def get_contour(filename, debug = False):
             cv2.waitKey(0)
             cv2.destroyAllWindows()
         
-        print(approx)
+        # print(approx)
 
         return approx
 def get_orient(ply,debug = False):
@@ -73,6 +74,6 @@ def get_orient(ply,debug = False):
 
 if __name__ == '__main__':
 
-    filename = 'mask_shan2.png'
+    filename = './data/mask/mountains/mask_shan2.png'
     ply = get_contour(filename,True)
     print(get_orient(ply))

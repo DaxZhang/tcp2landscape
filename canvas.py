@@ -1,12 +1,17 @@
 from PIL import Image,ImageDraw
 import numpy as np
 from stream import *
+from contour import get_contour
 import os 
 import argparse
 import torch
 import matplotlib.pyplot as plt
 import cv2
+import time
 from geomloss import SamplesLoss
+from shapely.geometry import Polygon,Point
+from shapely.affinity import translate, scale
+
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -830,7 +835,7 @@ class Canvas():
         # print(mask.shape)(self.height, self.width)
         # mask_single_channel = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
         # print(mask_single_channel.shape)
-        return mask
+        return mask,point_list
 
     def overlap(self,stream_mask, mat_mask, scale_factor=1,tx=0,ty=0,draw=False):
         """
@@ -855,9 +860,52 @@ class Canvas():
         # cv2.destroyAllWindows()
         return mat_area+stream_area-overlap_area*2
 
+    def overlap_polygon(self,polygon_1,polygon_2,draw=False):
+        canva_polygon=Polygon([(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)])
+        polygon_1 = polygon_1.intersection(canva_polygon)
+        polygon_2 = polygon_2.intersection(canva_polygon)
+        intersect_polygon = polygon_1.intersection(polygon_2)
+        intersect_area = intersect_polygon.area
+        p1_area = polygon_1.area
+        p2_area = polygon_2.area
+        if draw:
+            img1=self.polygon_to_nparray(polygon_1)
+            img2=self.polygon_to_nparray(polygon_2)
+            self.draw_overlap(img1,img2)
+        return intersect_area+p1_area+p2_area-intersect_area*3
+
+    def polygon_to_nparray(self,polygon):
+        from matplotlib.path import Path
+        # 创建空白图像
+        mask = np.zeros((self.height, self.width), dtype=np.uint8)
+
+        # 创建网格
+        x = np.linspace(0, self.width, self.width)
+        y = np.linspace(0, self.height, self.height)
+        xv, yv = np.meshgrid(x, y)
+        points = np.vstack((xv.flatten(), yv.flatten())).T
+
+        # 栅格化多边形
+        polygon_path = Path(np.array(polygon.exterior.coords))
+        inside = polygon_path.contains_points(points).reshape((self.height, self.width))
+
+        # 填充多边形区域
+        mask[inside] = 255
+
+        return mask
+
+    def translate_scale_polygon(self,polygon,tx,ty,scale_factor):
+        from matplotlib.path import Path
+        Polygon_canvas=Polygon([(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)])
+        translated_polygon = translate(polygon, xoff=tx, yoff=ty)
+        scaled_polygon = scale(translated_polygon, xfact=scale_factor, yfact=scale_factor, origin=translated_polygon.centroid)
+        # scaled_polygon = scaled_polygon.intersection(Polygon_canvas)
+        return scaled_polygon
+    
     def optim_mask(self,stream,mat_path):
         """gradient descent to optimize the mask of the stream"""
-        stream_mask = self.plot_polygon(stream)
+        start_time = time.time()
+        stream_mask,_ = self.plot_polygon(stream)
         mat_mask = cv2.imread(mat_path, cv2.IMREAD_GRAYSCALE)
         scale_factor = 1  # 缩放因子
         tx, ty = 0, 0  # 水平平移，垂直平移 
@@ -865,7 +913,7 @@ class Canvas():
         learning_rate = 0.1  # "学习率"
         unit_offset = 5  # 单位平移量
         sum_pix=self.width*self.height
-        max_iter = 300  # 最大迭代次数
+        max_iter = 500  # 最大迭代次数
         loss_record = [current_overlap_loss]
         x_record = [tx]
         y_record = [ty]
@@ -883,16 +931,121 @@ class Canvas():
             x_record.append(tx)
             y_record.append(ty)
             scale_record.append(scale_factor)
-
+        end_time = time.time()
+        print(f"优化用时：{end_time-start_time}s")
         print(f"scale_factor: {scale_factor}, tx: {tx}, ty: {ty}")
         self.images_to_video('optVis', 60)
         plt.plot(loss_record)
+        plt.title("loss")
         plt.show()
         plt.plot(x_record)
         plt.plot(y_record)
+        plt.title("tx,ty")
         plt.show()
         plt.plot(scale_record)
+        plt.title("scale")
         plt.show()
+
+    def optim_mask_with_contour(self,stream,mat_contour):
+        start_time = time.time()
+        stream_mask,stream_contour = self.plot_polygon(stream)
+        Polygon_canvas=Polygon([(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)])
+        Polygon_mat =  Polygon(mat_contour)
+        Polygon_stream = Polygon(stream_contour[0])
+        centroid_mat = Polygon_mat.centroid
+        centroid_stream = Polygon_stream.centroid
+        # tx=centroid_stream.x - centroid_mat.x
+        # ty=centroid_stream.y - centroid_mat.y
+        scale_factor = 0.3
+        min_x, min_y, max_x, max_y = Polygon_stream.bounds
+        tx_list=np.linspace(min_x,max_x,3).tolist()
+        ty_list=np.linspace(min_y,max_y,3).tolist()
+        tx_list=[int(i)-centroid_mat.x for i in tx_list]
+        ty_list=[int(i)-centroid_mat.y for i in ty_list]
+        print(tx_list)
+        clear_folder('optVis')
+        for tx in tx_list:
+            for ty in ty_list:
+                scale_factor_record = [scale_factor]#list, for recording
+                tx_record = [tx]#list, for recording
+                ty_record = [ty]#list, for recording
+                translated_scaled_polygon_mat = self.translate_scale_polygon(Polygon_mat,tx,ty,scale_factor)
+                loss_record = []
+                unit_offset = 25
+                unit_scale_rate = 0.1
+                scale_learning_rate = 0.05
+                translate_learning_rate = 1500
+                sum_pix=self.width*self.height
+                for i in range(100):
+                    current_overlap_loss = self.overlap_polygon(Polygon_stream,translated_scaled_polygon_mat)
+                    if i>30 and loss_record[-1]>0.99*0.5*(loss_record[-2]+loss_record[-3]):
+                        print("early stop,i: ",i)
+                        break
+                    x_loss = self.overlap_polygon(Polygon_stream,self.translate_scale_polygon(translated_scaled_polygon_mat,unit_offset,0,1)) - current_overlap_loss
+                    y_loss = self.overlap_polygon(Polygon_stream,self.translate_scale_polygon(translated_scaled_polygon_mat,0,unit_offset,1)) - current_overlap_loss
+                    scale_loss = self.overlap_polygon(Polygon_stream,self.translate_scale_polygon(translated_scaled_polygon_mat,0,0,1+unit_scale_rate)) - current_overlap_loss
+                    tx = - translate_learning_rate*x_loss/sum_pix
+                    ty = - translate_learning_rate*y_loss/sum_pix
+                    tx_record.append (tx)
+                    ty_record.append (ty)
+                    scale_factor=(1-scale_learning_rate*scale_loss/sum_pix)
+                    scale_factor_record.append(scale_factor)
+                    loss_record.append(current_overlap_loss)
+                    translated_scaled_polygon_mat = self.translate_scale_polygon(translated_scaled_polygon_mat,tx,ty,scale_factor)
+                # tx,ty可累加，scale操作每次都以centroid为中心，故可以直接累乘
+                import math
+                transform=[sum(tx_record),sum(ty_record),math.prod(scale_factor_record)]
+                end_time = time.time()
+                print(f"优化用时：{end_time-start_time}s")
+                print(f"transform: {transform}")
+                print(f"loss: {loss_record[-1]}")
+                
+                
+        self.images_to_video('optVis', 60)
+        # plt.plot(loss_record)
+        # plt.title("loss")
+        # plt.show()
+        # plt.plot(tx)
+        # plt.plot(ty)
+        # plt.title("tx,ty")
+        # plt.show()
+        # plt.plot(scale_factor)
+        # plt.title("scale")
+        # plt.show()
+        return transform
+    
+    def match_contour(self,img_contour,contours):
+        """
+        match the image with the contours
+        return the best match
+        """
+        best_record = 0
+        best_record_key = None
+        best_record_contour = None
+        print(type(contours))
+        for key, contour in contours.items():
+            match_score = cv2.matchShapes(img_contour, contour, cv2.CONTOURS_MATCH_I3, 0)#the pram can be changed to other match methods
+            print(f"match score: {match_score}")
+            if match_score > best_record:
+                best_record = match_score
+                best_record_key = key
+                best_record_contour = contour
+        print(f"best match: {best_record_key}")
+        return best_record_key, best_record_contour
+    
+    def calc_contours(self,path):
+        """
+        calculate the contours of the image in the folder
+        """
+        contour_dict = {}
+        for filename in os.listdir(path):
+            if filename.endswith('.png'):
+                img_path = os.path.join(path,filename)
+                tmp_contour = get_contour(img_path)#get the approximate contour of the image
+                contour_dict[filename] = tmp_contour
+        return contour_dict
+
+
 
     def draw_overlap(self,image1, image2):
         # 红色图片：灰度值映射到红色通道，透明度 50%
@@ -944,7 +1097,7 @@ class Canvas():
         height, width, layers = frame.shape
 
         # 视频输出路径
-        output_video_path = os.path.join(folder_name, "video.mp4")
+        output_video_path = os.path.join(folder_name, "animation.mp4")
 
         # 设置视频参数
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # 编码格式
@@ -953,7 +1106,6 @@ class Canvas():
         # 将每张图片写入视频
         for image in images:
             image_path = os.path.join(folder_name, image)
-            print(f"正在写入图片: {image_path}")
             frame = cv2.imread(image_path)
             video.write(frame)  # 写入帧
 
@@ -1048,5 +1200,8 @@ if __name__ == '__main__':
     # ]
     # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
     # canvas.optim_stream_and_ply(stream,ply)
-    
-    canvas.optim_mask(canvas.bgs[-2],'data/mask/mask_shan1.png')
+    contour_dict = canvas.calc_contours('data/mask/mountains/')
+    _,bg_contour = canvas.plot_polygon(canvas.bgs[-1])
+    _,best_contour = canvas.match_contour(bg_contour,contour_dict)
+    canvas.optim_mask_with_contour(canvas.bgs[-1],best_contour)
+    # canvas.optim_mask(canvas.bgs[-1],'data/mask/mountains/mask_shan1.png')

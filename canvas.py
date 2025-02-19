@@ -8,6 +8,7 @@ import torch
 import matplotlib.pyplot as plt
 import cv2
 import time
+import math
 from geomloss import SamplesLoss
 from shapely.geometry import Polygon,Point
 from shapely.affinity import translate, scale
@@ -289,10 +290,38 @@ class Canvas():
             now_x += np.random.normal(step,step/4)
             now_y = triangular_func(now_x,omega,phi=phi,A = oa) + vr
             stream.append((int(now_x),int(now_y)))
-
-
-        self.fgs.append(stream)
-
+        #纠正向右出界，取交点作为最后一个点    
+        stream[-1] = (self.width,int(stream[-2][1]+(stream[-1][1]-stream[-2][1])*(self.width-stream[-2][0])/(stream[-1][0]-stream[-2][0])))
+        
+        if max((row[1]) for row in stream) > self.height:#向下出界
+            pred_valid = stream[0][1]<self.height#认为首个点前还有一个相同的点
+            current_start_index = 0
+            for i in range(len(stream)):
+                if pred_valid:
+                    if stream[i][1] > self.height:
+                        modified_x = int(stream[i-1][0]+(stream[i][0]-stream[i-1][0])*(self.height-stream[i-1][1])/(stream[i][1]-stream[i-1][1]))
+                        tmp_stream_pt=(modified_x,self.height)#不能修改原列表，出界的点会在后续用到
+                        # tmp_stream_list=stream[current_start_index:i]
+                        # tmp_stream_list.append(tmp_stream_pt)
+                        self.fgs.append(stream[current_start_index:i]+[tmp_stream_pt])
+                        print(self.fgs[-1])
+                        pred_valid = False
+                    else:
+                        pass
+                else:#上一个点出界
+                    if stream[i][1] > self.height:#当前点也出界
+                        pass#处于废掉的一段
+                    else:#当前点正常
+                        modified_x = int(stream[i-1][0]+(stream[i][0]-stream[i-1][0])*(self.height-stream[i-1][1])/(stream[i][1]-stream[i-1][1]))
+                        tmp_stream_pt=(modified_x,self.height)
+                        stream[i-1] = tmp_stream_pt#直接将上一个点（出界）吸附到和边界的交点
+                        pred_valid = True
+                        current_start_index = i-1#该段的起点
+            if pred_valid:                        
+                self.fgs.append(stream[current_start_index:])
+                print(self.fgs[-1])
+        else:#未发生向下出界
+            self.fgs.append(stream)
         self.update_bias()
 
 
@@ -400,6 +429,7 @@ class Canvas():
         
 
     def make_breakpoint(self,stream_pts,on_left = True):
+        """ 返回stream上的黄金分割点"""
         left = max(0,stream_pts[0][0])
         right = min(stream_pts[-1][0],self.width)
 
@@ -434,7 +464,6 @@ class Canvas():
                 vert.append(point[1])
                 x = point[0]
                 y = point[1]
-
                 if idx == 0:
                     continue
 
@@ -458,7 +487,6 @@ class Canvas():
 
         for line in self.fgs:
             for idx,point in enumerate(line):
-
                 x = point[0]
                 y = point[1]
                 vert.append(y)
@@ -532,7 +560,7 @@ class Canvas():
     def density_at(self, x):
         y = []
         for stream in self.bgs:
-            print("stream: ",stream)
+            # print("stream: ",stream)
             y.append(find_point(stream,x))
         
         if len(y) == 1:
@@ -872,7 +900,7 @@ class Canvas():
             img1=self.polygon_to_nparray(polygon_1)
             img2=self.polygon_to_nparray(polygon_2)
             self.draw_overlap(img1,img2)
-        return intersect_area+p1_area+p2_area-intersect_area*3
+        return intersect_area+p1_area+p2_area-intersect_area*2.5
 
     def polygon_to_nparray(self,polygon):
         from matplotlib.path import Path
@@ -902,7 +930,7 @@ class Canvas():
         # scaled_polygon = scaled_polygon.intersection(Polygon_canvas)
         return scaled_polygon
     
-    def optim_mask(self,stream,mat_path):
+    def optim_mask(self,stream,mat_path):#已弃用
         """gradient descent to optimize the mask of the stream"""
         start_time = time.time()
         stream_mask,_ = self.plot_polygon(stream)
@@ -962,8 +990,9 @@ class Canvas():
         ty_list=np.linspace(min_y,max_y,3).tolist()
         tx_list=[int(i)-centroid_mat.x for i in tx_list]
         ty_list=[int(i)-centroid_mat.y for i in ty_list]
-        print(tx_list)
         clear_folder('optVis')
+        final_loss_record = []
+        final_transform_record = []
         for tx in tx_list:
             for ty in ty_list:
                 scale_factor_record = [scale_factor]#list, for recording
@@ -992,16 +1021,20 @@ class Canvas():
                     scale_factor_record.append(scale_factor)
                     loss_record.append(current_overlap_loss)
                     translated_scaled_polygon_mat = self.translate_scale_polygon(translated_scaled_polygon_mat,tx,ty,scale_factor)
-                # tx,ty可累加，scale操作每次都以centroid为中心，故可以直接累乘
+                # tx,ty可累加，表示pollygon.centroid的移动，我们取polygon中最小的x和y，便于后面绘制图像，scale操作每次都以当时的centroid为中心，故可以直接累乘
                 import math
-                transform=[sum(tx_record),sum(ty_record),math.prod(scale_factor_record)]
+                min_x , min_y,_,_=translated_scaled_polygon_mat.bounds
+                transform=[int(min_x),int(min_y),math.prod(scale_factor_record)]
                 end_time = time.time()
+                final_loss_record.append(loss_record[-1])
+                final_transform_record.append(transform)
                 print(f"优化用时：{end_time-start_time}s")
                 print(f"transform: {transform}")
                 print(f"loss: {loss_record[-1]}")
                 
-                
-        self.images_to_video('optVis', 60)
+        best_trans_index= final_loss_record.index(min(final_loss_record))
+        best_trans=final_transform_record[best_trans_index]       
+        # self.images_to_video('optVis', 60)
         # plt.plot(loss_record)
         # plt.title("loss")
         # plt.show()
@@ -1012,7 +1045,33 @@ class Canvas():
         # plt.plot(scale_factor)
         # plt.title("scale")
         # plt.show()
-        return transform
+        return best_trans
+    
+    def get_tree_name(self):
+        name1="shu3.png"
+        name2="shu2.png"
+        name_list = [name1,name2]
+        return name_list
+    
+    def paste_tree(self,tree_name,img):
+        if len(tree_name)!=len(self.ves):
+            raise ValueError("the number of trees is not equal to the number of ves")
+        for i in range(len(self.ves)):
+            ves = self.ves[i]
+            tree_hight = math.dist(ves[0],ves[1])
+            if ves[0][0]==ves[1][0]:
+                theta = math.pi/2
+            else:
+                k,b = calculate_linear_function(ves[0],ves[1])
+                theta = math.atan(k)
+            if theta<0:
+                theta+=math.pi
+            theta_degree = theta/math.pi*180
+            tmp_img = Image.open('data/images/'+tree_name[i]).convert("RGBA")
+            scale_factor=tree_hight/tmp_img.height
+            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
+            tmp_img.rotate(theta_degree-90,expand=True)#旋转中心取默认的图像中心，最后令图像中心与ves的中点重合
+            img.paste(tmp_img,(int((ves[0][0]+ves[1][0])/2-tmp_img.width/2),int((ves[0][1]+ves[1][1])/2-tmp_img.height/2)),mask=tmp_img)
     
     def match_contour(self,img_contour,contours):
         """
@@ -1022,7 +1081,6 @@ class Canvas():
         best_record = 0
         best_record_key = None
         best_record_contour = None
-        print(type(contours))
         for key, contour in contours.items():
             match_score = cv2.matchShapes(img_contour, contour, cv2.CONTOURS_MATCH_I3, 0)#the pram can be changed to other match methods
             print(f"match score: {match_score}")
@@ -1044,8 +1102,6 @@ class Canvas():
                 tmp_contour = get_contour(img_path)#get the approximate contour of the image
                 contour_dict[filename] = tmp_contour
         return contour_dict
-
-
 
     def draw_overlap(self,image1, image2):
         # 红色图片：灰度值映射到红色通道，透明度 50%
@@ -1201,7 +1257,34 @@ if __name__ == '__main__':
     # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
     # canvas.optim_stream_and_ply(stream,ply)
     contour_dict = canvas.calc_contours('data/mask/mountains/')
-    _,bg_contour = canvas.plot_polygon(canvas.bgs[-1])
-    _,best_contour = canvas.match_contour(bg_contour,contour_dict)
-    canvas.optim_mask_with_contour(canvas.bgs[-1],best_contour)
+    bg_transform=[]
+    fg_transform=[]
+    for bg in canvas.bgs:
+        _,bg_contour = canvas.plot_polygon(bg)#bg转化为封闭图形
+        best_contour_key,best_contour = canvas.match_contour(bg_contour,contour_dict)#匹配最佳素材，返回素材名称和contour
+        best_transform=canvas.optim_mask_with_contour(bg,best_contour)#返回素材优化的位置和放缩
+        bg_transform.append({best_contour_key:best_transform})#字典存储素材名称和transform
+    for fg in canvas.fgs:
+        _,fg_contour = canvas.plot_polygon(fg)
+        best_contour_key,best_contour = canvas.match_contour(fg_contour,contour_dict)
+        best_transform=canvas.optim_mask_with_contour(fg,best_contour)
+        fg_transform.append({best_contour_key:best_transform})
+    print(bg_transform)
+    print(fg_transform)
+    new_img=Image.open('data/images/paper_texture.png').resize((canvas.width,canvas.height))#纹理图像本身大小为1600*450
+    if True:
+        for i in range(len(canvas.bgs)):
+            tmp_img = Image.open('data/images/'+list(bg_transform[i].keys())[0]).convert("RGBA")
+            scale_factor=list(bg_transform[i].values())[0][2]
+            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
+            new_img.paste(tmp_img,(list(bg_transform[i].values())[0][0],list(bg_transform[i].values())[0][1]),mask=tmp_img)
+
+        for i in range(len(canvas.fgs)):
+            tmp_img = Image.open('data/images/'+list(fg_transform[i].keys())[0]).convert("RGBA")
+            scale_factor=list(fg_transform[i].values())[0][2]
+            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
+            new_img.paste(tmp_img,(list(fg_transform[i].values())[0][0],list(fg_transform[i].values())[0][1]),mask=tmp_img)
+        tree_name=canvas.get_tree_name()
+        canvas.paste_tree(tree_name, new_img)
+        new_img.save(f'{base_dir}result_paste.png')
     # canvas.optim_mask(canvas.bgs[-1],'data/mask/mountains/mask_shan1.png')

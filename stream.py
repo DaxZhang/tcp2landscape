@@ -58,7 +58,8 @@ def interval_overlap(a,b):
 def find_point(stream, x):
     ind = -1
     for pt in stream:
-        if abs(pt[0] - x) < 1e-5:
+        # if abs(pt[0] - x) < 1e-5:
+        if pt[0] == x:
             return pt[1]
         elif pt[0] < x:
             ind += 1

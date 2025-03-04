@@ -417,9 +417,10 @@ def segment_stream(stream_pts):
 
 
 def make_breakpoint(stream_pts):
+    """返回stream_pts中依照横坐标进行黄金分割的点"""
     left = max(0,stream_pts[0][0])
     right = stream_pts[-1][0]
-    x = left + (right - left) * GR
+    x = left + (right - left) * GR#横向的黄金分割坐标
     pred = []
     after = []
     ind = 0

@@ -1,5 +1,8 @@
+from hmac import new
 from PIL import Image,ImageDraw
 import numpy as np
+from regex import P
+from sympy import sec
 from stream import *
 from contour import get_contour
 import os 
@@ -12,6 +15,7 @@ import math
 from geomloss import SamplesLoss
 from shapely.geometry import Polygon,Point
 from shapely.affinity import translate, scale
+from shapely.plotting import plot_polygon
 
 
 def parse_arguments():
@@ -115,42 +119,41 @@ class Canvas():
 
         
         phi = 3*np.pi /2-omega*self.width
-        phi = np.random.normal(phi, np.pi / 4 *omega)
+        phi = np.random.normal(phi, np.pi / 4 *omega)#以上面的phi为均值，正态分布随机取值
         if self.bgs_size == 0:
-            phi = omega*np.random.uniform(0,t)
+            phi = omega*np.random.uniform(0,t)#0到2pi均匀随机
 
-        
 
 
 
         self.clock += 1
-        vr = np.random.normal(self.clock * 0.25 * self.height, 5)
+        vr = np.random.normal(self.clock * 0.25 * self.height, 5)#均值与线条数成正比
         if self.clock > 1:
             if self.bias_h <= 0:
                 pt_last = [0, self.height]
                 if self.clock == 2:
                     pt_last = [0]
                 for s in self.bgs:
-                    if s[-1][1] < self.height and s[-1][1] > 0:
+                    if s[-1][1] < self.height and s[-1][1] > 0:#最后一个点的纵坐标未超出y的范围
                         pt_last.append(s[-1][1])
                 if len(pt_last) == 1:
                     pt_last.append(self.height)
                 pt_last.sort()
+                
                 dis = np.diff(pt_last)
-                idx = np.argmax(dis)
+                idx = np.argmax(dis)#纵向末尾最大间隔
 
                 y1 = pt_last[idx]
                 y2 = pt_last[idx+1]
                  
-                pt_last_y = y1 + 0.618*(y2 - y1)
+                pt_last_y = y1 + 0.618*(y2 - y1)#设定理想的最末一个点的纵坐标
                 omega = np.random.uniform(1.25*np.pi/self.width, 2 * np.pi/self.width)
                 
+                phi = np.random.uniform(1.5*np.pi,1.75*np.pi) - omega * self.width#使末尾点在上升后才刚开始下降的位置
 
-                phi = np.random.uniform(1.5*np.pi,1.75*np.pi) - omega * self.width
+                vr = self.height/2 - self.dense_y*self.height/2#dense_y即为论文中delta_y，vr为三角函数偏移的高度
 
-                vr = self.height/2 - self.dense_y*self.height/2
-
-                a = (pt_last_y - vr)/triangular_func(self.width,omega,phi,1)
+                a = (pt_last_y - vr)/triangular_func(self.width,omega,phi,1)#通过调整振幅使得末尾的点落在计算得的理想位置pt_last_y
 
 
                 if abs(self.dense_y) < 2e-1:
@@ -193,12 +196,12 @@ class Canvas():
                 # # phi = np.random.uniform(phi, np.pi / 4 *omega)
                 print(np.degrees(phi), omega, a, vr, triangular_func(self.width,omega,phi,a) + vr)
                 
-            else:
+            else:#self.bias_h > 0
                 pt_last = [0, self.height]
                 if self.clock == 2:
                     pt_last = [0]
                 for s in self.bgs:
-                    if s[0][1] < self.height and s[0][1] > 0:
+                    if s[0][1] < self.height and s[0][1] > 0:#与bias_h不同，记录第一个点的纵坐标
                         pt_last.append(s[0][1])
                 if len(pt_last) == 1:
                     pt_last.append(self.height)
@@ -414,12 +417,12 @@ class Canvas():
         if self.bias_h > 0:
             add_pt, idx, p, a = self.make_breakpoint(stream_pts,False)
         else:
-            add_pt, idx, p, a = self.make_breakpoint(stream_pts,True)
+            add_pt, idx, p, a = self.make_breakpoint(stream_pts,True)#on left
         hat = add_pt
-        add_pt = (add_pt[0], add_pt[1]+25)
+        add_pt = (add_pt[0], add_pt[1]+25)#stream上的黄金分割点下移25
         h = 0.618 * self.height
         if up:
-            hat = (add_pt[0], add_pt[1]-h)
+            hat = (add_pt[0], add_pt[1]-h)#黄金分割点上移h
         else:
             hat = (add_pt[0], add_pt[1]+h)
 
@@ -521,18 +524,18 @@ class Canvas():
             perp_bias = x_bias*y_weight
             bias += perp_bias
 
-        self.vert = np.mean(vert)
+        self.vert = np.mean(vert)#fg, bg所有节点y坐标平均
         self.bias_h = 0
         self.bias_v = (self.vert-self.height/2)/(self.height/2)
 
 
-        self.bias_h += self.density()
+        self.bias_h += self.density()#δx
 
 
         y = []
         w = 0
         for stream in self.bgs:
-            for i, pt in enumerate(stream):
+            for i, pt in enumerate(stream):#traverse all points in the background streams
                 if i == 0:
                     continue
                 pt_pred = stream[i-1]
@@ -551,13 +554,14 @@ class Canvas():
                 
                 
         
-        self.dense_y = (np.mean(y)-self.height/2)/(self.height/2) 
+        self.dense_y = (np.mean(y)-self.height/2)/(self.height/2) #δy in paper
 
 
 
 
     
     def density_at(self, x):
+        """q(x) in paper"""
         y = []
         for stream in self.bgs:
             # print("stream: ",stream)
@@ -582,6 +586,7 @@ class Canvas():
 
     
     def density(self):
+        """δx in paper"""
         num = 10
         stp = np.linspace(0, self.width,num)
 
@@ -602,6 +607,7 @@ class Canvas():
         
 
     def segment(self, stream):
+        """将stream上出界的线段切割，仅保留可见部分"""
         segments = []
         now_seg = []
         is_pred_visi = False
@@ -660,6 +666,7 @@ class Canvas():
         return segments
 
     def is_visible(self,pt):
+        """判断点是否在画布内"""
         if pt[0] < 0 or pt[0] > self.width:
             return False
         
@@ -673,9 +680,14 @@ class Canvas():
         best_pt = None
         best_pred = None
         best_succ= None
+        sec_best_deviation = np.inf
+        sec_best_pt = None
+        sec_best_pred = None
+        sec_best_succ= None
         for segment in self.bgs:
             
             add_pt, _, pred, succ =make_breakpoint(segment)
+            #三分法，x方向从1/3,2/3中取最优的算，y方向取偏下的1/3计算
             x_dva = min(
                 (add_pt[0] - self.width/3)**2,
                 (add_pt[0] - 2* self.width/3) **2,
@@ -683,40 +695,63 @@ class Canvas():
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
             lor = 1 if add_pt[0] > self.width / 2 else -1
             dva = x_dva + y_dva + self.dense * lor
-            if dva < best_deviation:
-                best_deviation = dva
-                best_pt = add_pt
-                best_pred = pred
-                best_succ = succ
+            if dva <sec_best_deviation:
+                if dva < best_deviation:
+                    sec_best_deviation = best_deviation
+                    sec_best_pt = best_pt
+                    sec_best_pred = best_pred
+                    sec_best_succ = best_succ
+                    best_deviation = dva
+                    best_pt = add_pt
+                    best_pred = pred
+                    best_succ = succ
+                else:
+                    sec_best_deviation = dva
+                    sec_best_pt = add_pt
+                    sec_best_pred = pred
+                    sec_best_succ = succ
             
-            add_pt, _, pred,succ =make_breakpoint_right(segment)
+            add_pt, _, pred,succ =make_breakpoint_right(segment)#右侧黄金分割点
             x_dva = min(
                 (add_pt[0] - self.width/3)**2,
                 (add_pt[0] - 2* self.width/3) **2,
             )/self.width**2
             y_dva = (add_pt[1] - 2 * self.height/3)**2/self.height**2
             lor = 1 if add_pt[0] > self.width / 2 else -1
-            dva = x_dva + y_dva + self.dense * lor
-            if dva < best_deviation:
-                best_deviation = dva
-                best_pt = add_pt
-                best_succ = succ
-                best_pred = pred
-                
-        k,b = calculate_linear_function(best_pred, best_succ)
-        print(f'best dva: {dva}')
-        # print(f'best pred: {best_pred}, best succ: {best_succ}')
+            dva = x_dva + y_dva + self.dense * lor#dense即delta_x
+            if dva <sec_best_deviation:
+                if dva < best_deviation:
+                    sec_best_deviation = best_deviation
+                    sec_best_pt = best_pt
+                    sec_best_pred = best_pred
+                    sec_best_succ = best_succ
+                    best_deviation = dva
+                    best_pt = add_pt
+                    best_succ = succ
+                    best_pred = pred
+                else:
+                    sec_best_deviation = dva
+                    sec_best_pt = add_pt
+                    sec_best_succ = succ
+                    sec_best_pred = pred
+        k1,b1 = calculate_linear_function(best_pred, best_succ)
+        k2,b2 = calculate_linear_function(sec_best_pred, sec_best_succ)
+        print(f'best dva: {dva},sec_best_dva: {sec_best_deviation}')
+        print(f'best pred: {best_pred}, best succ: {best_succ}, sec_best_pred: {sec_best_pred}, sec_best_succ: {sec_best_succ}')
         self.drawer.circle(best_pred,4,fill='black')
         self.drawer.circle(best_succ,4,fill='black')
-        # print(k,b)
-
-        dgr = np.arctan(-k)
+        self.drawer.circle(sec_best_pred,4,fill='black')
+        self.drawer.circle(sec_best_succ,4,fill='black')
+        dgr = np.arctan(-k1)
+        dgr2 = np.arctan(-k2)
         # print(np.degrees(dgr))
-        basept = (best_pt[0] ,best_pt[1]+25)
-            
-        endpt = (int(basept[0] - 100* np.sin(dgr)), int(basept[1] - 100*np.cos(dgr)))
-
+        basept = (best_pt[0] ,best_pt[1]+25)#best_pt下移25作为basept
+        basept2 = (sec_best_pt[0],sec_best_pt[1]+25)#sec_best_pt下移25作为basept2
+        
+        endpt = (int(basept[0] - 100* np.sin(dgr)), int(basept[1] - 200*np.cos(dgr)))#basept与endpt构成与stream垂直、长100的线段
+        endpt2 = (int(basept2[0] - 100* np.sin(dgr2)), int(basept2[1] - 100*np.cos(dgr2)))#basept2与endpt2构成与stream垂直、长100的线段
         self.ves.append([basept, endpt])
+        self.ves.append([basept2, endpt2])
         print(self.ves)
 
 
@@ -900,7 +935,8 @@ class Canvas():
             img1=self.polygon_to_nparray(polygon_1)
             img2=self.polygon_to_nparray(polygon_2)
             self.draw_overlap(img1,img2)
-        return intersect_area+p1_area+p2_area-intersect_area*2.5
+        k=2.5#此为重要的超参数，k越大，重叠面积的权重越大，导致画面约密集
+        return intersect_area+p1_area+p2_area-intersect_area*k
 
     def polygon_to_nparray(self,polygon):
         from matplotlib.path import Path
@@ -1006,9 +1042,9 @@ class Canvas():
                 translate_learning_rate = 1500
                 sum_pix=self.width*self.height
                 for i in range(100):
-                    current_overlap_loss = self.overlap_polygon(Polygon_stream,translated_scaled_polygon_mat)
+                    current_overlap_loss = self.overlap_polygon(Polygon_stream,translated_scaled_polygon_mat,False)
                     if i>30 and loss_record[-1]>0.99*0.5*(loss_record[-2]+loss_record[-3]):
-                        print("early stop,i: ",i)
+                        # print("early stop,i: ",i)
                         break
                     x_loss = self.overlap_polygon(Polygon_stream,self.translate_scale_polygon(translated_scaled_polygon_mat,unit_offset,0,1)) - current_overlap_loss
                     y_loss = self.overlap_polygon(Polygon_stream,self.translate_scale_polygon(translated_scaled_polygon_mat,0,unit_offset,1)) - current_overlap_loss
@@ -1028,9 +1064,9 @@ class Canvas():
                 end_time = time.time()
                 final_loss_record.append(loss_record[-1])
                 final_transform_record.append(transform)
-                print(f"优化用时：{end_time-start_time}s")
-                print(f"transform: {transform}")
-                print(f"loss: {loss_record[-1]}")
+                # print(f"优化用时：{end_time-start_time}s")
+                # print(f"transform: {transform}")
+                # print(f"loss: {loss_record[-1]}")
                 
         best_trans_index= final_loss_record.index(min(final_loss_record))
         best_trans=final_transform_record[best_trans_index]       
@@ -1049,7 +1085,7 @@ class Canvas():
     
     def get_tree_name(self):
         name1="shu3.png"
-        name2="shu2.png"
+        name2="shu5.png"
         name_list = [name1,name2]
         return name_list
     
@@ -1078,17 +1114,17 @@ class Canvas():
         match the image with the contours
         return the best match
         """
-        best_record = 0
+        best_record = None
         best_record_key = None
         best_record_contour = None
         for key, contour in contours.items():
             match_score = cv2.matchShapes(img_contour, contour, cv2.CONTOURS_MATCH_I3, 0)#the pram can be changed to other match methods
-            print(f"match score: {match_score}")
-            if match_score > best_record:
+            print(f"{key} match scoreI3: {match_score}")
+            if best_record is None or match_score < best_record:
                 best_record = match_score
                 best_record_key = key
                 best_record_contour = contour
-        print(f"best match: {best_record_key}")
+        print(f"best match3: {best_record_key},best score: {best_record}")  
         return best_record_key, best_record_contour
     
     def calc_contours(self,path):
@@ -1145,7 +1181,8 @@ class Canvas():
 
         # 检查是否有图片
         if not images:
-            raise ValueError("未找到图片文件，请检查文件夹路径")
+            return
+            # raise ValueError("未找到图片文件，请检查文件夹路径")
 
         # 读取第一张图片以获取分辨率
         first_image_path = os.path.join(folder_name, images[0])
@@ -1237,11 +1274,11 @@ if __name__ == '__main__':
     canvas.segment_stream()
     canvas.add_tree()
 
-    canvas.add_verts(canvas.bgs[-1])
-    for _ in range(5):
-        canvas.add_foreground_stream()
-    canvas.add_peaks()
-    canvas.update_bias()
+    # canvas.add_verts(canvas.bgs[-1])
+    # for _ in range(5):
+    #     canvas.add_foreground_stream()
+    # canvas.add_peaks()
+    # canvas.update_bias()
 
 
     canvas.draw()
@@ -1257,6 +1294,9 @@ if __name__ == '__main__':
     # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
     # canvas.optim_stream_and_ply(stream,ply)
     contour_dict = canvas.calc_contours('data/mask/mountains/')
+    for key, contour in contour_dict.items():
+        plot_polygon(Polygon(contour))
+
     bg_transform=[]
     fg_transform=[]
     for bg in canvas.bgs:
@@ -1264,11 +1304,6 @@ if __name__ == '__main__':
         best_contour_key,best_contour = canvas.match_contour(bg_contour,contour_dict)#匹配最佳素材，返回素材名称和contour
         best_transform=canvas.optim_mask_with_contour(bg,best_contour)#返回素材优化的位置和放缩
         bg_transform.append({best_contour_key:best_transform})#字典存储素材名称和transform
-    for fg in canvas.fgs:
-        _,fg_contour = canvas.plot_polygon(fg)
-        best_contour_key,best_contour = canvas.match_contour(fg_contour,contour_dict)
-        best_transform=canvas.optim_mask_with_contour(fg,best_contour)
-        fg_transform.append({best_contour_key:best_transform})
     print(bg_transform)
     print(fg_transform)
     new_img=Image.open('data/images/paper_texture.png').resize((canvas.width,canvas.height))#纹理图像本身大小为1600*450
@@ -1278,12 +1313,7 @@ if __name__ == '__main__':
             scale_factor=list(bg_transform[i].values())[0][2]
             tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
             new_img.paste(tmp_img,(list(bg_transform[i].values())[0][0],list(bg_transform[i].values())[0][1]),mask=tmp_img)
-
-        for i in range(len(canvas.fgs)):
-            tmp_img = Image.open('data/images/'+list(fg_transform[i].keys())[0]).convert("RGBA")
-            scale_factor=list(fg_transform[i].values())[0][2]
-            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
-            new_img.paste(tmp_img,(list(fg_transform[i].values())[0][0],list(fg_transform[i].values())[0][1]),mask=tmp_img)
+            new_img.save(f'{base_dir}result_paste{i}.png')
         tree_name=canvas.get_tree_name()
         canvas.paste_tree(tree_name, new_img)
         new_img.save(f'{base_dir}result_paste.png')

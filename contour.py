@@ -17,12 +17,12 @@ def get_contour(filename, debug = False):
     # 高斯滤波
     blurred = cv2.GaussianBlur(img, (9, 9), 0)
     img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    contours, hierarchy = cv2.findContours(blurred, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours, hierarchy = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
 
 
     # 绘制轮廓
-    cv2.drawContours(img_rgb, contours, -1, (0, 255, 0), 2)
+    cv2.drawContours(img, contours, -1, (0, 255, 0), 2)
 
     # 计算轮廓边缘方向
     for contour in contours:
@@ -34,8 +34,8 @@ def get_contour(filename, debug = False):
             # 可以根据需要对方向进行进一步处理或统计
 
     if debug:        
-        cv2.imshow('Contours', img_rgb)
-        cv2.imwrite('Contour.png',img_rgb)
+        cv2.imshow('Contours', img)
+        cv2.imwrite('Contour.png',img)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
 
@@ -47,9 +47,9 @@ def get_contour(filename, debug = False):
         
         if debug:
             # 创建一个空白图像用于绘制多边形
-            poly_image = np.zeros_like(img_rgb)
+            poly_image = np.zeros_like(img)
             cv2.drawContours(poly_image, [approx], 0, (0, 255, 0), 2)
-            h, w,_ = poly_image.shape
+            h, w = poly_image.shape
             cv2.imshow("Polygon", cv2.resize(poly_image,(w//2,h//2)))
             cv2.imwrite('./polygon.png',poly_image)
             cv2.waitKey(0)
@@ -74,6 +74,6 @@ def get_orient(ply,debug = False):
 
 if __name__ == '__main__':
 
-    filename = './data/mask/mountains/mask_shan2.png'
+    filename = './data/mask/mountains/shan12.png'
     ply = get_contour(filename,True)
     print(get_orient(ply))

@@ -1,7 +1,8 @@
 from hmac import new
+import re
 from PIL import Image,ImageDraw
 import numpy as np
-from regex import P
+from regex import F, P
 from sympy import sec
 from stream import *
 from contour import get_contour
@@ -61,6 +62,10 @@ class Canvas():
         # 偏置
         self.bias_h = 0
         self.bias_v = 0
+        
+        #优化与匹配
+        self.bg_transform = []
+        self.bg_match_record = []
 
     def draw(self):
         for lines in self.bgs:
@@ -1069,7 +1074,7 @@ class Canvas():
                 # print(f"loss: {loss_record[-1]}")
                 
         best_trans_index= final_loss_record.index(min(final_loss_record))
-        best_trans=final_transform_record[best_trans_index]       
+        best_trans=final_transform_record[best_trans_index]
         # self.images_to_video('optVis', 60)
         # plt.plot(loss_record)
         # plt.title("loss")
@@ -1084,8 +1089,8 @@ class Canvas():
         return best_trans
     
     def get_tree_name(self):
-        name1="shu3.png"
-        name2="shu5.png"
+        name1="shu5.png"
+        name2="shu3.png"
         name_list = [name1,name2]
         return name_list
     
@@ -1106,25 +1111,38 @@ class Canvas():
             tmp_img = Image.open('data/images/'+tree_name[i]).convert("RGBA")
             scale_factor=tree_hight/tmp_img.height
             tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
-            tmp_img.rotate(theta_degree-90,expand=True)#旋转中心取默认的图像中心，最后令图像中心与ves的中点重合
+            tmp_img = tmp_img.rotate(-(theta_degree-90),expand=True)#旋转中心取默认的图像中心，最后令图像中心与ves的中点重合
             img.paste(tmp_img,(int((ves[0][0]+ves[1][0])/2-tmp_img.width/2),int((ves[0][1]+ves[1][1])/2-tmp_img.height/2)),mask=tmp_img)
     
-    def match_contour(self,img_contour,contours):
+    def match_contour(self,img_contour,contours,allow_repeat_match=False):
         """
         match the image with the contours
         return the best match
         """
-        best_record = None
-        best_record_key = None
-        best_record_contour = None
+        record = []
+        best_record = None#最优评分
+        best_record_key = None#文件名
+        best_record_contour = None#shapely contour，返回值
         for key, contour in contours.items():
             match_score = cv2.matchShapes(img_contour, contour, cv2.CONTOURS_MATCH_I3, 0)#the pram can be changed to other match methods
-            print(f"{key} match scoreI3: {match_score}")
-            if best_record is None or match_score < best_record:
+            # print(f"{key} match scoreI3: {match_score}")
+            record.append([key, match_score])
+            if best_record is None or match_score < best_record:#得分越低越好
                 best_record = match_score
                 best_record_key = key
                 best_record_contour = contour
-        print(f"best match3: {best_record_key},best score: {best_record}")  
+        if best_record_key not in self.bg_match_record:
+            print(f"best match(method3): {best_record_key},best score: {best_record}")
+        else:
+            print("repeat match")
+            record = sorted(record, key=lambda x: x[1])
+            for key in record[1:]:
+                if key[0] not in self.bg_match_record:
+                    print(f"found new!: best match(method3): {key[0]},best score: {key[1]}")
+                    best_record_key = key[0]
+                    best_record_contour = contours[key[0]]
+                    break
+        self.bg_match_record.append(best_record_key)      
         return best_record_key, best_record_contour
     
     def calc_contours(self,path):
@@ -1297,23 +1315,21 @@ if __name__ == '__main__':
     for key, contour in contour_dict.items():
         plot_polygon(Polygon(contour))
 
-    bg_transform=[]
-    fg_transform=[]
+
     for bg in canvas.bgs:
         _,bg_contour = canvas.plot_polygon(bg)#bg转化为封闭图形
-        best_contour_key,best_contour = canvas.match_contour(bg_contour,contour_dict)#匹配最佳素材，返回素材名称和contour
+        best_contour_key,best_contour = canvas.match_contour(bg_contour,contour_dict,False)#匹配最佳素材，返回素材名称和contour，第三个参数决定是否允许重复元素
         best_transform=canvas.optim_mask_with_contour(bg,best_contour)#返回素材优化的位置和放缩
-        bg_transform.append({best_contour_key:best_transform})#字典存储素材名称和transform
-    print(bg_transform)
-    print(fg_transform)
+        canvas.bg_transform.append({best_contour_key:best_transform})
+    print(canvas.bg_transform)
     new_img=Image.open('data/images/paper_texture.png').resize((canvas.width,canvas.height))#纹理图像本身大小为1600*450
     if True:
         for i in range(len(canvas.bgs)):
-            tmp_img = Image.open('data/images/'+list(bg_transform[i].keys())[0]).convert("RGBA")
-            scale_factor=list(bg_transform[i].values())[0][2]
+            tmp_img = Image.open('data/images/'+list(canvas.bg_transform[i].keys())[0]).convert("RGBA")
+            scale_factor=list(canvas.bg_transform[i].values())[0][2]
             tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
-            new_img.paste(tmp_img,(list(bg_transform[i].values())[0][0],list(bg_transform[i].values())[0][1]),mask=tmp_img)
-            new_img.save(f'{base_dir}result_paste{i}.png')
+            new_img.paste(tmp_img,(list(canvas.bg_transform[i].values())[0][0],list(canvas.bg_transform[i].values())[0][1]),mask=tmp_img)
+            new_img.save(f'{base_dir}result_paste{i+1}.png')
         tree_name=canvas.get_tree_name()
         canvas.paste_tree(tree_name, new_img)
         new_img.save(f'{base_dir}result_paste.png')

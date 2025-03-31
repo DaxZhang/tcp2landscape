@@ -1,6 +1,7 @@
 from PIL import Image, ImageDraw
 import numpy as np
 import math
+from scipy.spatial.distance import euclidean
 
 GR = (2.23606797749979 - 1) / 2
 
@@ -414,9 +415,57 @@ def segment_stream(stream_pts):
     elif mode == 6:
         return stream_pts
     
+def closest_point_on_line_segment(p1, p2, point):
+    """
+    计算给定点到线段的最近点。
+    :param p1: 线段的第一个端点 (x1, y1)
+    :param p2: 线段的第二个端点 (x2, y2)
+    :param point: 给定点 (x, y)
+    :return: 线段上离给定点最近的点
+    """
+    if p1.all() == p2.all():
+        return p1
+    line_vec = p2 - p1
+    point_vec = point - p1
+    line_len = np.linalg.norm(line_vec)
+    line_unitvec = line_vec / line_len
+    point_vec_scaled = point_vec / line_len
+    t = np.dot(line_unitvec, point_vec_scaled)
+    if t < 0.0:#大于90度，垂足不在线段上
+        t = 0.0#落到p1
+    elif t > 1.0:#长度超出p2
+        t = 1.0#落到p2
+    nearest = p1 + t * line_vec
+    return nearest
 
+def find_closest_point_on_polylines(polylines, point):
+    """
+    在一系列折线(polyline)中找到离给定点最近的点。
+    :param polyline: 折线，由一系列二维点组成，形状为 (n, 2)
+    :param point: 给定点，形状为 (2,)
+    :return: 折线中离给定点最近的点
+    """
+    point_record = []
+    dis_record=[]
+    for polyline in polylines:
+        closest_point = None
+        min_distance = float('inf')
+        for i in range(len(polyline) - 1):
+            p1 = np.array(polyline[i])
+            p2 = np.array(polyline[i + 1])
+            current_closest = closest_point_on_line_segment(p1, p2, point)
+            current_distance = euclidean(current_closest, point)
+            
+            if current_distance < min_distance:
+                closest_point = current_closest
+                min_distance = current_distance
+        point_record.append(closest_point)
+        dis_record.append(min_distance)
+    closest_point = point_record[np.argmin(dis_record)]
+    closest_point = (int(closest_point[0]), int(closest_point[1]))
+    return closest_point
 
-def make_breakpoint(stream_pts):
+def make_breakpoint(stream_pts,streams):
     """返回stream_pts中依照横坐标进行黄金分割的点"""
     left = max(0,stream_pts[0][0])
     right = stream_pts[-1][0]
@@ -432,13 +481,15 @@ def make_breakpoint(stream_pts):
         if pt[0] > x:
             after = pt
             break
-
+    # print("x, pred, after:",x, pred, after)
+    # print(stream_pts)
     k,b = calculate_linear_function(pred,after)
     y = linear_function(k,b,x)
-    return (int(x), y), ind, pred, after
+    near_point = find_closest_point_on_polylines(streams, np.array([x,y]))
+    return near_point, ind, pred, after
 
 
-def make_breakpoint_right(stream_pts):
+def make_breakpoint_right(stream_pts,streams):
     left = max(0,stream_pts[0][0])
     right = stream_pts[-1][0]
     x = left + (right - left) * (1 - GR)
@@ -456,7 +507,8 @@ def make_breakpoint_right(stream_pts):
 
     k,b = calculate_linear_function(pred,after)
     y = linear_function(k,b,x)
-    return (int(x), y), ind, pred, after
+    near_point = find_closest_point_on_polylines(streams, np.array([x,y]))
+    return near_point, ind, pred, after
 
 
 def generate_vert_line(stream_pts,up = True):

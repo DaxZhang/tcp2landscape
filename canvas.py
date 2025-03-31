@@ -1,10 +1,14 @@
+from email.mime import base
 from hmac import new
+from turtle import color
+from weakref import ref
 from PIL import Image,ImageDraw
 import numpy as np
-from regex import P
-from sympy import sec
+from shapely import multipolygons
 from stream import *
+from color_transfer import transfer_color
 from contour import get_contour
+import copy
 import os 
 import argparse
 import torch
@@ -13,9 +17,11 @@ import cv2
 import time
 import math
 from geomloss import SamplesLoss
-from shapely.geometry import Polygon,Point
+from shapely.geometry import Polygon,MultiPolygon
 from shapely.affinity import translate, scale
 from shapely.plotting import plot_polygon
+
+import stream
 
 
 def parse_arguments():
@@ -61,6 +67,12 @@ class Canvas():
         # 偏置
         self.bias_h = 0
         self.bias_v = 0
+        
+        #优化与匹配
+        self.bg_transform = []
+        self.bg_match_record = []
+        self.transformed_polygons = [] #np.array([])
+        self.bg_polygons = [] #np.array([])
 
     def draw(self):
         for lines in self.bgs:
@@ -100,7 +112,10 @@ class Canvas():
         self.drawer.line([line_left_base,line_left_end],fill='green',width=3)
         self.drawer.line([line_right_base,line_right_end],fill='green',width=3)
 
-
+    def draw_match(self):
+        for poly in self.transformed_polygons:
+            poly_tuple=[tuple(p) for p in poly]
+            self.drawer.line(poly_tuple,fill='gray',width=3)
         
 
         
@@ -271,7 +286,6 @@ class Canvas():
         self.bgs.append(stream)
         self.bgs_size += 1
         self.update_bias()
-    
 
     def add_foreground_stream(self):
         self.clock+=1
@@ -327,8 +341,6 @@ class Canvas():
             self.fgs.append(stream)
         self.update_bias()
 
-
-
     def save_(self, filname = 'result_image.png'):
         self.image.save(f'./{filname}')
 
@@ -337,7 +349,6 @@ class Canvas():
             self.add_background_stream()
         if stream_pts == None:
             stream_pts = self.bgs[0]
-            
 
         left = stream_pts[0][0]
         right = stream_pts[-1][0]
@@ -430,7 +441,6 @@ class Canvas():
 
         self.update_bias()
         
-
     def make_breakpoint(self,stream_pts,on_left = True):
         """ 返回stream上的黄金分割点"""
         left = max(0,stream_pts[0][0])
@@ -555,10 +565,6 @@ class Canvas():
                 
         
         self.dense_y = (np.mean(y)-self.height/2)/(self.height/2) #δy in paper
-
-
-
-
     
     def density_at(self, x):
         """q(x) in paper"""
@@ -582,8 +588,6 @@ class Canvas():
         avg = np.mean(dis)
 
         return - avg/self.height + var/self.height**2
-
-
     
     def density(self):
         """δx in paper"""
@@ -604,8 +608,12 @@ class Canvas():
         self.dense = right_dense - left_dense
         return self.dense
 
-        
-
+    def up_down(self, stream_pts):
+        """将上出界的点下移到边界处"""
+        for i in range(len(stream_pts)):
+            if stream_pts[i][1]<0:
+                stream_pts[i] = (stream_pts[i][0],0)
+                
     def segment(self, stream):
         """将stream上出界的线段切割，仅保留可见部分"""
         segments = []
@@ -625,6 +633,9 @@ class Canvas():
                         if pred_pt[0] < 0:
                             x = 0
                             y = int(b)
+                        if pred_pt[0] > self.width:
+                            x = self.width
+                            y = int(linear_function(k,b,x))
                         if pred_pt[1] < 0:
                             y = 0
                             x = linear_function(1/k,-b/k,y)
@@ -685,8 +696,8 @@ class Canvas():
         sec_best_pred = None
         sec_best_succ= None
         for segment in self.bgs:
-            
-            add_pt, _, pred, succ =make_breakpoint(segment)
+            print(segment)
+            add_pt, _, pred, succ =make_breakpoint(segment,self.transformed_polygons)
             #三分法，x方向从1/3,2/3中取最优的算，y方向取偏下的1/3计算
             x_dva = min(
                 (add_pt[0] - self.width/3)**2,
@@ -711,7 +722,7 @@ class Canvas():
                     sec_best_pred = pred
                     sec_best_succ = succ
             
-            add_pt, _, pred,succ =make_breakpoint_right(segment)#右侧黄金分割点
+            add_pt, _, pred,succ =make_breakpoint_right(segment,self.transformed_polygons)#右侧黄金分割点
             x_dva = min(
                 (add_pt[0] - self.width/3)**2,
                 (add_pt[0] - 2* self.width/3) **2,
@@ -747,41 +758,28 @@ class Canvas():
         # print(np.degrees(dgr))
         basept = (best_pt[0] ,best_pt[1]+25)#best_pt下移25作为basept
         basept2 = (sec_best_pt[0],sec_best_pt[1]+25)#sec_best_pt下移25作为basept2
-        
-        endpt = (int(basept[0] - 100* np.sin(dgr)), int(basept[1] - 200*np.cos(dgr)))#basept与endpt构成与stream垂直、长100的线段
-        endpt2 = (int(basept2[0] - 100* np.sin(dgr2)), int(basept2[1] - 100*np.cos(dgr2)))#basept2与endpt2构成与stream垂直、长100的线段
+        tree_hight = 100+100*basept[1]/self.height
+        endpt = (int(basept[0] - 100* np.sin(dgr)), int(basept[1] - tree_hight*np.cos(dgr)))#basept与endpt构成与stream垂直、长150的线段
+        endpt2 = (int(basept2[0] - 100* np.sin(dgr2)), int(basept2[1] - 200*np.cos(dgr2)))#basept2与endpt2构成与stream垂直、长200的线段
         self.ves.append([basept, endpt])
-        self.ves.append([basept2, endpt2])
+        # self.ves.append([basept2, endpt2])#暂使用一棵树
         print(self.ves)
 
-
-
-        
-
-
-        
-
-            
-
-    def segment_stream(self):
+    def segment_stream(self,up_out_down=True):
         temp = []
         
         for stream in self.bgs:
             print("before segment: ",stream)
-
+            self.up_down(stream)
             segs = self.segment(stream)
-
             print('after segment: ',segs)
             temp+=segs
 
         self.bgs = temp
 
-
-
     def render_(self):
         # 根据折线匹配图像并放进去
         pass
-
 
     def point_normalize(self, stream):
         stream = np.array(stream, dtype= np.float32)
@@ -800,8 +798,6 @@ class Canvas():
         stream = stream.T
         stream = np.array(stream,dtype=np.int32)
         return stream
-        
-
 
     def optim_stream_and_ply(self,stream, ply):
         ply = np.array(ply)/2
@@ -883,7 +879,7 @@ class Canvas():
         """plot the stream as a polygon on the canvas
             saved as a np.ndarray with shape (height, width)
             """
-        point_list=stream
+        point_list=copy.deepcopy(stream)
         #the start point on wich edge
         if(point_list[0][1]<self.height):#start on the left
             point_list.insert(0,(0,self.height))
@@ -893,11 +889,10 @@ class Canvas():
         
         point_list.append(point_list[0])#connect the start and end point
         point_list =  np.array([point_list], dtype=np.int32) 
-        mask = np.zeros((self.height, self.width), dtype=np.uint8)
-        cv2.fillPoly(mask, [point_list], color=255)  # 填充多边形为白色
-        # print(mask.shape)(self.height, self.width)
-        # mask_single_channel = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
-        # print(mask_single_channel.shape)
+        mask=None#save performance
+        # mask = np.zeros((self.height, self.width), dtype=np.uint8)
+        # cv2.fillPoly(mask, [point_list], color=255)  # 填充多边形为白色
+
         return mask,point_list
 
     def overlap(self,stream_mask, mat_mask, scale_factor=1,tx=0,ty=0,draw=False):
@@ -966,6 +961,17 @@ class Canvas():
         # scaled_polygon = scaled_polygon.intersection(Polygon_canvas)
         return scaled_polygon
     
+    def append_transformed_polygon(self,polygon):
+        if isinstance(polygon, MultiPolygon):
+            # 获取MultiPolygon中包含的Polygon数量
+            num_polygons = len(polygon.geoms)            
+            for single_polygon in polygon.geoms:
+                np_polygon = np.array(single_polygon.exterior.coords, dtype=np.int32)
+                self.transformed_polygons.append(np_polygon)
+        else:
+            np_polygon = np.array(polygon.exterior.coords, dtype=np.int32)
+            self.transformed_polygons.append(np_polygon)
+        
     def optim_mask(self,stream,mat_path):#已弃用
         """gradient descent to optimize the mask of the stream"""
         start_time = time.time()
@@ -1010,9 +1016,9 @@ class Canvas():
         plt.title("scale")
         plt.show()
 
-    def optim_mask_with_contour(self,stream,mat_contour):
+    def optim_mask_with_contour(self,stream_ind,mat_contour):
         start_time = time.time()
-        stream_mask,stream_contour = self.plot_polygon(stream)
+        stream_contour = self.bg_polygons[stream_ind]
         Polygon_canvas=Polygon([(0, 0), (self.width, 0), (self.width, self.height), (0, self.height)])
         Polygon_mat =  Polygon(mat_contour)
         Polygon_stream = Polygon(stream_contour[0])
@@ -1026,9 +1032,10 @@ class Canvas():
         ty_list=np.linspace(min_y,max_y,3).tolist()
         tx_list=[int(i)-centroid_mat.x for i in tx_list]
         ty_list=[int(i)-centroid_mat.y for i in ty_list]
-        clear_folder('optVis')
+        # clear_folder('optVis')
         final_loss_record = []
         final_transform_record = []
+        final_polygon_record = []
         for tx in tx_list:
             for ty in ty_list:
                 scale_factor_record = [scale_factor]#list, for recording
@@ -1058,6 +1065,7 @@ class Canvas():
                     loss_record.append(current_overlap_loss)
                     translated_scaled_polygon_mat = self.translate_scale_polygon(translated_scaled_polygon_mat,tx,ty,scale_factor)
                 # tx,ty可累加，表示pollygon.centroid的移动，我们取polygon中最小的x和y，便于后面绘制图像，scale操作每次都以当时的centroid为中心，故可以直接累乘
+                final_polygon_record.append(translated_scaled_polygon_mat)
                 import math
                 min_x , min_y,_,_=translated_scaled_polygon_mat.bounds
                 transform=[int(min_x),int(min_y),math.prod(scale_factor_record)]
@@ -1069,7 +1077,10 @@ class Canvas():
                 # print(f"loss: {loss_record[-1]}")
                 
         best_trans_index= final_loss_record.index(min(final_loss_record))
-        best_trans=final_transform_record[best_trans_index]       
+        best_trans=final_transform_record[best_trans_index]
+        best_polygon=final_polygon_record[best_trans_index]
+        best_polygon=best_polygon.intersection(Polygon_canvas)
+        self.append_transformed_polygon(best_polygon)
         # self.images_to_video('optVis', 60)
         # plt.plot(loss_record)
         # plt.title("loss")
@@ -1084,16 +1095,16 @@ class Canvas():
         return best_trans
     
     def get_tree_name(self):
-        name1="shu3.png"
-        name2="shu5.png"
-        name_list = [name1,name2]
+        name1="shu4.png"
+        # name2="shu3.png"
+        name_list = [name1]
         return name_list
     
     def paste_tree(self,tree_name,img):
         if len(tree_name)!=len(self.ves):
             raise ValueError("the number of trees is not equal to the number of ves")
         for i in range(len(self.ves)):
-            ves = self.ves[i]
+            ves = self.ves[i]#get tree's position
             tree_hight = math.dist(ves[0],ves[1])
             if ves[0][0]==ves[1][0]:
                 theta = math.pi/2
@@ -1106,25 +1117,38 @@ class Canvas():
             tmp_img = Image.open('data/images/'+tree_name[i]).convert("RGBA")
             scale_factor=tree_hight/tmp_img.height
             tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
-            tmp_img.rotate(theta_degree-90,expand=True)#旋转中心取默认的图像中心，最后令图像中心与ves的中点重合
+            tmp_img = tmp_img.rotate(-(theta_degree-90),expand=True)#旋转中心取默认的图像中心，最后令图像中心与ves的中点重合
             img.paste(tmp_img,(int((ves[0][0]+ves[1][0])/2-tmp_img.width/2),int((ves[0][1]+ves[1][1])/2-tmp_img.height/2)),mask=tmp_img)
     
-    def match_contour(self,img_contour,contours):
+    def match_contour(self,img_contour,contours,allow_repeat_match=False):
         """
         match the image with the contours
-        return the best match
+        return the best match material's name and contour
+        the third parameter is used to avoid repeat match
         """
-        best_record = None
-        best_record_key = None
-        best_record_contour = None
+        record = []
+        best_record = None#最优评分
+        best_record_key = None#文件名
+        best_record_contour = None#shapely contour，返回值
         for key, contour in contours.items():
             match_score = cv2.matchShapes(img_contour, contour, cv2.CONTOURS_MATCH_I3, 0)#the pram can be changed to other match methods
-            print(f"{key} match scoreI3: {match_score}")
-            if best_record is None or match_score < best_record:
+            # print(f"{key} match scoreI3: {match_score}")
+            record.append([key, match_score])
+            if best_record is None or match_score < best_record:#得分越低越好
                 best_record = match_score
                 best_record_key = key
                 best_record_contour = contour
-        print(f"best match3: {best_record_key},best score: {best_record}")  
+        print(f"best match(method3): {best_record_key},best score: {best_record}")
+        if not allow_repeat_match and best_record_key in self.bg_match_record:
+                print("repeat match")
+                record = sorted(record, key=lambda x: x[1])
+                for key in record[1:]:
+                    if key[0] not in self.bg_match_record:
+                        print(f"found new!: best match(method3): {key[0]},best score: {key[1]}")
+                        best_record_key = key[0]
+                        best_record_contour = contours[key[0]]
+                        break
+        self.bg_match_record.append(best_record_key)      
         return best_record_key, best_record_contour
     
     def calc_contours(self,path):
@@ -1205,7 +1229,61 @@ class Canvas():
         # 释放视频资源
         video.release()
 
+    def stream_area(self,stream):
+        _,stream_contour=self.plot_polygon(stream)
+        return cv2.contourArea(stream_contour)
 
+    def bg_layer_process(self):
+        """
+        change the background layer sequence
+        the bigger ones will be drawn first
+        the lower layers(the lower is under the upper) moves up a little in the canva
+        """
+        for bg in self.bgs:
+            _ , bg_polygon = self.plot_polygon(bg)#turn into np; make sure it is in the canva
+            self.bg_polygons.append(bg_polygon)
+            
+        self.bg_polygons.sort(key=lambda x: cv2.contourArea(x), reverse=True)#sort by area, from big to small
+        
+        for i in range(len(self.bg_polygons)):#vertical displacement according to the layer
+            ver_displacement = self.height/40*(len(self.bg_polygons)-i) #vertical displacement, modify here
+            self.bg_polygons[i][0][:,1] -= int(ver_displacement)
+            self.bg_polygons[i][0][:,1] = np.maximum(0,self.bg_polygons[i][0][:,1])
+
+    def material_paste(self):
+        new_img=Image.new('RGB', (self.width, self.height), (227,208,163))
+        for i in range(len(self.bgs)):
+            # tmp_img = Image.open('data/images/'+list(self.bg_transform[i].keys())[0]).convert("RGBA")
+            tmp_img_path = f'data/images/{list(self.bg_transform[i].keys())[0]}'
+            ref_ind=np.random.randint(i, min(i+3, 7))
+            ref_img_path = f'data/images/layer_color_ref/{i}.png'
+            tmp_img = transfer_color(tmp_img_path,ref_img_path)
+            cv2.imwrite('tmp.png',tmp_img)
+            tmp_img = Image.open('tmp.png').convert("RGBA")
+            
+            scale_factor=list(self.bg_transform[i].values())[0][2]
+            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
+            new_img.paste(tmp_img,(list(self.bg_transform[i].values())[0][0],list(self.bg_transform[i].values())[0][1]),mask=tmp_img)
+            new_img.save(f'{base_dir}result_paste{i+1}.png')
+        tree_name=self.get_tree_name()
+        self.paste_tree(tree_name, new_img)
+        new_img.save(f'{base_dir}result_paste.png')
+        new_img.save(f'./runs/results overview/result{len(os.listdir("./runs"))-1}.png')
+        os.remove('tmp.png')
+        
+    def calculate_polygon_area(polygon_array):
+        """ 计算三维数组格式的多边形面积 """
+        # 将形状从(1,5,2)转换为OpenCV要求的(5,1,2)格式
+        contour = polygon_array.astype(np.int32).reshape((-1, 1, 2))
+        return float(cv2.contourArea(contour))
+            
+    def bg_transformation(self,contour_dict):
+        for i in range(len(self.bg_polygons)):
+            best_contour_key,best_contour = self.match_contour(self.bg_polygons[i],contour_dict)#匹配最佳素材，返回素材名称和contour，第三个参数决定是否允许重复元素
+            best_transform=self.optim_mask_with_contour(i,best_contour)#返回素材优化的位置和放缩
+            self.bg_transform.append({best_contour_key:best_transform})
+        print(self.bg_transform)
+    
 def clear_folder(folder_path):
     """
     删除文件夹内的所有元素（包括文件和子文件夹）。
@@ -1226,95 +1304,75 @@ def clear_folder(folder_path):
             os.remove(item_path)
 
     print(f"文件夹已清空: {folder_path}")
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-if __name__ == '__main__': 
-    if not os.path.exists("./runs"):
-        os.mkdir('./runs/')
     
-    task_bef = len(os.listdir("./runs/"))
-    base_dir = f'./runs/exp{task_bef}/'
-    os.mkdir(base_dir)
+transform=[]
+for i in range(10):
+    if __name__ == '__main__': 
+        if not os.path.exists("./runs"):
+            os.mkdir('./runs/')
+        if not os.path.exists("./runs/results overview"):
+            os.mkdir('./runs/results overview')
+        
+        task_bef = len(os.listdir("./runs/"))
+        base_dir = f'./runs/exp{task_bef}/'
+        os.mkdir(base_dir)
 
-    args = parse_arguments()
-    canvas = Canvas(args)
-    canvas.add_background_stream()
+        args = parse_arguments()
+        canvas = Canvas(args)
+        canvas.add_background_stream()
 
-    canvas.draw()
-    canvas.save_(f'{base_dir}result1.png')
-
-
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.add_background_stream()
-    canvas.draw()
-    canvas.save_(f'{base_dir}result2.png')
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.add_background_stream()
-    print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
-    print(f"dense= {canvas.dense}")
-    canvas.draw()
-
-    canvas.save_(f'{base_dir}result_bef.png')
-
-    canvas.clean()
-    canvas.segment_stream()
-    canvas.add_tree()
-
-    # canvas.add_verts(canvas.bgs[-1])
-    # for _ in range(5):
-    #     canvas.add_foreground_stream()
-    # canvas.add_peaks()
-    # canvas.update_bias()
+        canvas.draw()
+        canvas.save_(f'{base_dir}result1.png')
 
 
-    canvas.draw()
+        print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+        print(f"dense= {canvas.dense}")
+        canvas.add_background_stream()
+        canvas.draw()
+        canvas.save_(f'{base_dir}result2.png')
+        print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+        print(f"dense= {canvas.dense}")
+        canvas.add_background_stream()
+        print(f'平衡度为：{canvas.bias_h}, {canvas.dense_y}')
+        print(f"dense= {canvas.dense}")
+        canvas.draw()
 
-    canvas.save_(f'{base_dir}{args.filename}')
+        canvas.save_(f'{base_dir}result_bef.png')
 
-    # ply = [[1260,407],
-    #     [ 668  ,  0],
-    #     [ 479 ,  78],
-    #     [   0 , 761],
-    #     [1094 , 761]
-    # ]
-    # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
-    # canvas.optim_stream_and_ply(stream,ply)
-    contour_dict = canvas.calc_contours('data/mask/mountains/')
-    for key, contour in contour_dict.items():
-        plot_polygon(Polygon(contour))
+        canvas.clean()
+        canvas.segment_stream()
 
-    bg_transform=[]
-    fg_transform=[]
-    for bg in canvas.bgs:
-        _,bg_contour = canvas.plot_polygon(bg)#bg转化为封闭图形
-        best_contour_key,best_contour = canvas.match_contour(bg_contour,contour_dict)#匹配最佳素材，返回素材名称和contour
-        best_transform=canvas.optim_mask_with_contour(bg,best_contour)#返回素材优化的位置和放缩
-        bg_transform.append({best_contour_key:best_transform})#字典存储素材名称和transform
-    print(bg_transform)
-    print(fg_transform)
-    new_img=Image.open('data/images/paper_texture.png').resize((canvas.width,canvas.height))#纹理图像本身大小为1600*450
-    if True:
-        for i in range(len(canvas.bgs)):
-            tmp_img = Image.open('data/images/'+list(bg_transform[i].keys())[0]).convert("RGBA")
-            scale_factor=list(bg_transform[i].values())[0][2]
-            tmp_img = tmp_img.resize((int(tmp_img.width*scale_factor),int(tmp_img.height*scale_factor)))
-            new_img.paste(tmp_img,(list(bg_transform[i].values())[0][0],list(bg_transform[i].values())[0][1]),mask=tmp_img)
-            new_img.save(f'{base_dir}result_paste{i}.png')
-        tree_name=canvas.get_tree_name()
-        canvas.paste_tree(tree_name, new_img)
-        new_img.save(f'{base_dir}result_paste.png')
-    # canvas.optim_mask(canvas.bgs[-1],'data/mask/mountains/mask_shan1.png')
+        # canvas.add_verts(canvas.bgs[-1])
+        # for _ in range(5):
+        #     canvas.add_foreground_stream()
+        # canvas.add_peaks()
+        # canvas.update_bias()
+
+
+
+
+        # ply = [[1260,407],
+        #     [ 668  ,  0],
+        #     [ 479 ,  78],
+        #     [   0 , 761],
+        #     [1094 , 761]
+        # ]
+        # stream = [(327, 0), (591, 121), (875, 374), (982, 450)]
+        # canvas.optim_stream_and_ply(stream,ply)
+        
+        #record the contour of the materials
+        contour_dict = canvas.calc_contours('data/mask/mountains/')
+        for key, contour in contour_dict.items():
+            plot_polygon(Polygon(contour))
+            
+        canvas.bg_layer_process()
+        canvas.bg_transformation(contour_dict)
+        canvas.add_tree()
+        canvas.draw()
+        canvas.draw_match()
+        canvas.save_(f'{base_dir}{args.filename}')
+        transform.append(canvas.bg_transform)
+        canvas.material_paste()
+        
+        
+print(transform)
